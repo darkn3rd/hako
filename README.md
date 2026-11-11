@@ -195,6 +195,52 @@ scripts/               provisioning, catalog, OVF and test helpers
 vagrantfiles/box.rb    Vagrantfile embedded in the boxes
 ```
 
+## Roadmap
+
+Planned, not implemented yet. A hako box file is about 700 MB (bento's are
+2.6-3.7 GB), which is why GitHub Releases, with its 2 GiB-per-asset limit,
+works as the download host.
+
+1. **Multi-architecture under one name**, like bento: `hako/ubuntu-26.04`
+   covers amd64 and arm64. The catalog gets one provider entry per
+   provider/architecture pair, each with its own `url` and sha256, and one
+   architecture per provider marked `default_architecture` (amd64). The
+   architecture never goes into the box name; splitting it (as robox does
+   with `generic-x64` / `generic-a64`) is a pre-Vagrant-2.4 pattern.
+2. **Build each architecture natively, never emulated.** arm64 on Apple
+   Silicon (as now); amd64 on x86 Linux hosts with KVM or on GitHub Actions
+   Ubuntu runners. Every arm64 assumption becomes a function of `ARCH`:
+   - cloud image URL (`amd64` vs `arm64`)
+   - `qemu_binary` (`qemu-system-x86_64` vs `qemu-system-aarch64`)
+   - `machine_type` (`q35` vs `virt,highmem=on`)
+   - accelerator (`kvm` / `hvf`)
+   - EDK2 firmware paths
+   - VirtualBox `--platform-architecture` / `--ostype`
+     (`x86` / `Ubuntu_64` vs `arm` / `Ubuntu_arm64`)
+3. **One version across hosts.** `VERSION` is passed explicitly; each host
+   uploads its own assets to the same release and merges its entries into
+   the catalog, keyed by provider and architecture. Each host tests only its
+   own architecture.
+4. **A `qemu` catalog entry** pointing at the same libvirt box file, as bento
+   does, so vagrant-qemu users get a direct provider match.
+5. **Hyper-V (amd64)**, which bento's 26.04 box does not offer:
+   - add `linux-cloud-tools` to the base image (`hv_kvp_daemon`, which
+     Vagrant needs to learn the VM's IP) and check that the initramfs has
+     `hv_vmbus`, `hv_netvsc` and `hv_storvsc`;
+   - convert the amd64 image with
+     `qemu-img convert -O vhdx -o subformat=dynamic` and package it as a
+     `hyperv` box (`Virtual Hard Disks/`, VM config if needed, and
+     `metadata.json` with `provider: hyperv`), for a Generation 2 VM with
+     Secure Boot off or the "Microsoft UEFI Certificate Authority" template;
+   - test on a Windows host (`vagrant up --provider hyperv` as
+     administrator) with the same boot-time and SSH checks;
+   - Hyper-V on Windows on ARM (arm64) is a later option.
+6. **Optional: register `hako/ubuntu-26.04` on the HCP Vagrant Registry**
+   (free for public boxes), with provider URLs pointing at the GitHub
+   release assets, so `config.vm.box = "hako/ubuntu-26.04"` works without
+   `box_url`.
+7. **Later providers:** `parallels`, `vmware_desktop`, `utm`.
+
 ## License
 
 Apache-2.0, see [LICENSE](LICENSE).
