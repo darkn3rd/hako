@@ -19,7 +19,9 @@ netplan file configures `eth0`, so `systemd-networkd-wait-online` times out
 
 hako boxes start from Ubuntu's cloud image instead of an installer ISO and
 ship with exactly one netplan file that matches any ethernet NIC by name
-(`e*`): no MAC address, no `set-name`. A VM boots in a few seconds.
+(`e*`): no MAC address, no `set-name`. A VM boots in about 5 seconds
+(`systemd-analyze`) under both vagrant-qemu and VirtualBox, and `vagrant up`
+takes 20-30 seconds.
 
 ## Using the box
 
@@ -76,10 +78,13 @@ config.vm.box_url = "file:///path/to/hako/boxes/ubuntu-26.04.local.json"
   nothing; `config.vm.cloud_init` and vagrant-qemu's private networks still
   work.
 - Empty `/etc/machine-id` and no SSH host keys: each VM gets its own on
-  first boot.
+  first boot (`hako-ssh-hostkeys.service` runs `ssh-keygen -A` before
+  `ssh.socket` starts).
+- Only the running kernel; no kernel headers (except in the VirtualBox box).
 - `apt-daily*` timers and `unattended-upgrades` disabled, so nothing holds
   the dpkg lock while you provision.
-- 64 GB sparse disk, already grown.
+- 64 GB sparse disk, already grown. Box files are about 0.7 GB (libvirt)
+  and 0.8 GB (virtualbox).
 - VirtualBox box only: Guest Additions (shared folders via `vboxsf`), with
   build tools and kernel headers kept so the modules rebuild on kernel
   upgrades.
@@ -106,10 +111,13 @@ Packer's `qemu` builder boots the cloud image itself as the disk
 (`disk_image = true`) with HVF acceleration and UEFI. A NoCloud seed
 (`cloud-init/`), attached as a `cidata` CD only during the build, creates
 the `vagrant` user. `scripts/base.sh` upgrades packages and installs the
-files in `files/`; `scripts/cleanup.sh` runs `cloud-init clean`, empties the
-machine-id, removes host keys, logs and caches, and trims free space so
-`qemu-img` can compress the image. The `vagrant` post-processor packages the
-qcow2 and `metadata.json` as a libvirt box.
+files in `files/`. The VM then reboots into the upgraded kernel and
+`scripts/kernel.sh` purges the old kernel and the headers. `scripts/cleanup.sh`
+runs `cloud-init clean`, empties the machine-id, removes host keys, logs and
+caches, and trims free space so `qemu-img` can compress the image. The
+`vagrant` post-processor packages the qcow2 and `metadata.json` as a libvirt
+box. Packer prepends a `libvirt.driver = "qemu"` block to the box's
+Vagrantfile; vagrant-qemu ignores it.
 
 ### virtualbox
 
@@ -119,7 +127,8 @@ considered:
 1. **Reuse the libvirt image** (chosen). `scripts/make-vbox-ovf.sh`
    converts the finished qcow2 to VMDK and wraps it in an ARM VirtualBox
    OVF (EFI, VirtIO storage and NIC). Packer's `virtualbox-ovf` builder
-   imports it, installs the Guest Additions and runs the same cleanup.
+   imports it, installs the Guest Additions and runs the same cleanup, which
+   zero-fills free space here (VirtualBox ignores TRIM on VMDK disks).
 2. An autoinstall ISO build (bento-style). It would need its own installer
    config and care to avoid the stale installer netplan file that causes
    the bento delay, and the result would differ from the cloud-image base
@@ -141,8 +150,15 @@ and then:
 
 - fails if `systemd-analyze time` reports a boot over `MAX_BOOT` seconds
   (default 15);
-- checks SSH, passwordless sudo and that exactly one netplan file exists;
+- checks SSH, passwordless sudo, exactly one netplan file and
+  `systemctl is-system-running` = `running`;
+- VirtualBox only: mounts the project as a `vboxsf` shared folder;
+- reboots with `vagrant reload` and checks SSH again;
 - destroys the VM.
+
+The cached box is removed with `vagrant box remove --provider ...` but
+without `--architecture`: Vagrant 2.4.9 then wrongly reports that arm64 is
+not installed, which would leave an old build in the cache.
 
 ## Publishing
 
@@ -158,7 +174,11 @@ make publish
    uploads the boxes (`gh release upload --clobber`).
 
 Then commit and push `ubuntu-26.04.json`: Vagrant reads the catalog from the
-`main` branch.
+`main` branch. Release tags are per box (`ubuntu-26.04-v<version>`) so other
+distributions can share this repository.
+
+A rebuild changes the checksums, so publish the boxes you tested: `make
+publish` rewrites the catalog entries from the files in `boxes/`.
 
 To publish a box built on another day, pass its version:
 `make publish VERSION=2026.11.10`.

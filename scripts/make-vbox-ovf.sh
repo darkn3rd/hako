@@ -19,7 +19,7 @@ mkdir -p "$outdir"
 rm -f "$outdir"/*.ovf "$outdir"/*.vmdk
 
 echo "Converting $image to VMDK"
-qemu-img convert -p -O vmdk -o subformat=monolithicSparse "$image" "$work/disk.vmdk"
+qemu-img convert -O vmdk -o subformat=monolithicSparse "$image" "$work/disk.vmdk"
 
 VBoxManage createvm --name "$vm" --platform-architecture arm --ostype Ubuntu_arm64 \
   --basefolder "$work" --register

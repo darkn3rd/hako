@@ -33,7 +33,12 @@ Vagrant.configure("2") do |config|
   config.vm.box         = "hako/ubuntu-26.04"
   config.vm.box_url     = "$catalog_url"
   config.vm.box_version = "$version"
-  config.vm.synced_folder ".", "/vagrant", disabled: true
+  if "$provider" == "virtualbox"
+    # Checks the Guest Additions (vboxsf).
+    config.vm.synced_folder ".", "/vagrant", type: "virtualbox"
+  else
+    config.vm.synced_folder ".", "/vagrant", disabled: true
+  end
   config.vm.provider "qemu" do |qe|
     qe.ssh_auto_correct = true
   end
@@ -71,6 +76,10 @@ vagrant ssh -c 'set -e
   echo "system state: $state"
   if [ "$state" != running ]; then systemctl --failed --no-pager; exit 1; fi
   systemd-analyze blame | head -5'
+
+if [[ $provider == virtualbox ]]; then
+  vagrant ssh -c 'set -e; mount -t vboxsf; test -f /vagrant/Vagrantfile && echo "vboxsf shared folder: ok"'
+fi
 
 # A second boot must work too (no first-boot-only luck).
 vagrant reload

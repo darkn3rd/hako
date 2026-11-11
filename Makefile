@@ -30,7 +30,7 @@ MAX_ASSET     := 2147483648
 PACKER_VARS := -var box_version=$(VERSION) -var os_name=$(OS) \
                -var os_version=$(OS_VERSION) -var arch=$(ARCH)
 
-.PHONY: all init build build-libvirt build-virtualbox test local-catalog catalog publish clean
+.PHONY: all init build build-libvirt build-virtualbox test local-catalog catalog check-size publish clean
 
 all: build test
 
@@ -54,25 +54,30 @@ $(LIBVIRT_IMAGE):
 # Local catalog with file:// URLs to the boxes in boxes/ (not committed).
 local-catalog:
 	rm -f $(LOCAL_CATALOG)
-	$(foreach p,$(PROVIDERS),scripts/catalog.sh $(LOCAL_CATALOG) $(BOX) $(VERSION) $(p) $(ARCH) \
+	@$(foreach p,$(PROVIDERS),scripts/catalog.sh $(LOCAL_CATALOG) $(BOX) $(VERSION) $(p) $(ARCH) \
 	  $(call box_file,$(p)) file://$(CURDIR)/$(call box_file,$(p)) &&) true
 
 test: local-catalog
-	$(foreach p,$(PROVIDERS),MAX_BOOT=$(MAX_BOOT) scripts/test-box.sh $(p) \
+	@$(foreach p,$(PROVIDERS),MAX_BOOT=$(MAX_BOOT) scripts/test-box.sh $(p) \
 	  file://$(CURDIR)/$(LOCAL_CATALOG) $(VERSION) &&) true
 
 # Update the committed catalog with the release download URLs + checksums.
 catalog:
-	$(foreach p,$(PROVIDERS),scripts/catalog.sh $(CATALOG) $(BOX) $(VERSION) $(p) $(ARCH) \
+	@$(foreach p,$(PROVIDERS),scripts/catalog.sh $(CATALOG) $(BOX) $(VERSION) $(p) $(ARCH) \
 	  $(call box_file,$(p)) $(RELEASE_URL)/$(notdir $(call box_file,$(p))) &&) true
+
+# Every box must exist and be under GitHub's release asset limit.
+check-size:
+	@for f in $(foreach p,$(PROVIDERS),$(call box_file,$(p))); do \
+	  size=$$(stat -f %z "$$f") || exit 1; \
+	  if [ "$$size" -ge $(MAX_ASSET) ]; then echo "$$f is $$size bytes, over GitHub's 2 GiB limit" >&2; exit 1; fi; \
+	  echo "$$f: $$size bytes (limit $(MAX_ASSET))"; \
+	done
 
 # Upload the boxes to the GitHub release $(TAG) (created if needed) and
 # update $(CATALOG). Commit and push the catalog afterwards.
-publish: catalog
-	@for f in $(foreach p,$(PROVIDERS),$(call box_file,$(p))); do \
-	  size=$$(stat -f %z "$$f"); \
-	  if [ "$$size" -ge $(MAX_ASSET) ]; then echo "$$f is $$size bytes, over GitHub's 2 GiB limit" >&2; exit 1; fi; \
-	done
+publish: check-size
+	$(MAKE) catalog VERSION=$(VERSION) PROVIDERS="$(PROVIDERS)"
 	gh release view $(TAG) --repo $(REPO) >/dev/null 2>&1 || \
 	  gh release create $(TAG) --repo $(REPO) --title "$(BOX) $(VERSION)" \
 	    --notes "Vagrant box $(BOX) $(VERSION) ($(ARCH): $(PROVIDERS)), built from the Ubuntu $(OS_VERSION) cloud image."

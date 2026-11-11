@@ -36,5 +36,17 @@ rm -f /root/.bash_history /home/vagrant/.bash_history
 rm -rf /var/lib/dhcp/* /var/lib/systemd/network/* 2>/dev/null || true
 
 # Hand free blocks back to the hypervisor so the image compacts well.
+# QEMU (discard=unmap) honours TRIM. VirtualBox ignores TRIM on VMDK disks,
+# so there the free space is zero-filled; the exported stream-optimized
+# VMDK then skips the zero blocks.
+# (systemd-detect-virt says "none" under VirtualBox on Apple Silicon, so
+# look for the Guest Additions, which only the VirtualBox build installs.)
+if compgen -G '/opt/VBoxGuestAdditions-*' >/dev/null; then
+  for fs in / /boot; do
+    dd if=/dev/zero of="$fs/ZERO" bs=4M status=none || true
+    sync
+    rm -f "$fs/ZERO"
+  done
+fi
 fstrim -av || true
 sync

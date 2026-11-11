@@ -23,6 +23,6 @@ output-*/
 *.vmdk
 *.ovf
 *.vdi
-packer-*.log
+*.log
 build-*.out
 .vagrant/
