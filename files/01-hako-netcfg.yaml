@@ -1,0 +1,16 @@
+# Installed by hako. One DHCP config for every ethernet NIC, matched by
+# name pattern (no MAC address, no set-name), so it works whatever name the
+# hypervisor's NIC gets: eth0 (virtio-mmio), enp0s1 (QEMU virtio-pci),
+# enp0s8 (VirtualBox), ...
+#
+# The id starts with "zz-" on purpose: netplan renders it as
+# /run/systemd/network/10-netplan-zz-all-ethernet.network, which sorts after
+# any per-interface config Vagrant or a cloud-init seed adds later (for
+# example a private_network on the second NIC), so those win for their NIC.
+network:
+  version: 2
+  ethernets:
+    zz-all-ethernet:
+      match:
+        name: "e*"
+      dhcp4: true

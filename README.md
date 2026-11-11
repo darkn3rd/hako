@@ -1,0 +1,246 @@
+# hako
+
+Small, fast-booting Vagrant boxes for Apple Silicon Macs, built with Packer
+from the distribution's official **cloud image** and published on this
+repository's GitHub Releases with a Vagrant box catalog.
+
+| Box                 | Architecture | Providers                                     |
+|---------------------|--------------|-----------------------------------------------|
+| `hako/ubuntu-26.04` | arm64        | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` |
+
+Catalog: [`ubuntu-26.04.json`](ubuntu-26.04.json)
+
+## Why
+
+The `bento/ubuntu-26.04` box (202606.01.0) waits two minutes on every boot:
+the installer's netplan file renames the NIC by MAC address while bento's own
+netplan file configures `eth0`, so `systemd-networkd-wait-online` times out
+([chef/bento#1709](https://github.com/chef/bento/issues/1709)).
+
+hako boxes start from Ubuntu's cloud image instead of an installer ISO and
+ship with exactly one netplan file that matches any ethernet NIC by name
+(`e*`): no MAC address, no `set-name`. A VM boots in about 5 seconds
+(`systemd-analyze`) under both vagrant-qemu and VirtualBox, and `vagrant up`
+takes 20-30 seconds.
+
+## Using the box
+
+The catalog is not on HashiCorp's registry, so point `box_url` at it:
+
+```ruby
+Vagrant.configure("2") do |config|
+  config.vm.box     = "hako/ubuntu-26.04"
+  config.vm.box_url = "https://raw.githubusercontent.com/darkn3rd/hako/main/ubuntu-26.04.json"
+  # config.vm.box_version = "2026.11.10"   # optional pin
+
+  # vagrant-qemu (libvirt box format)
+  config.vm.provider "qemu" do |qe|
+    qe.memory = "2G"
+    qe.smp    = 2
+  end
+
+  # VirtualBox 7.1+ on Apple Silicon
+  config.vm.provider "virtualbox" do |vb|
+    vb.memory = 2048
+    vb.cpus   = 2
+  end
+end
+```
+
+```bash
+vagrant up --provider=qemu
+```
+
+```bash
+vagrant up --provider=virtualbox
+```
+
+Because the catalog has a `versions` list, `vagrant box outdated` and
+`vagrant box update` work as with any registry box.
+
+A catalog on disk works the same way, which is how `make test` runs boxes
+before they are published:
+
+```ruby
+config.vm.box_url = "file:///path/to/hako/boxes/ubuntu-26.04.local.json"
+```
+
+### What is in the box
+
+- Ubuntu 26.04 server cloud image (arm64), packages upgraded at build time.
+- User `vagrant` (password `vagrant`), passwordless sudo, Vagrant's insecure
+  public keys (RSA and ed25519); Vagrant swaps in a per-VM key on first `up`.
+- One netplan file, `/etc/netplan/01-hako-netcfg.yaml`: DHCP on every NIC
+  named `e*`. Its id sorts last, so per-interface configs added later (a
+  Vagrant `private_network`, a cloud-init seed) win for their NIC.
+- cloud-init stays installed but only reacts to a NoCloud/ConfigDrive seed.
+  With no seed (a plain `vagrant up`) it is disabled for that boot and costs
+  nothing; `config.vm.cloud_init` and vagrant-qemu's private networks still
+  work.
+- Empty `/etc/machine-id` and no SSH host keys: each VM gets its own on
+  first boot (`hako-ssh-hostkeys.service` runs `ssh-keygen -A` before
+  `ssh.socket` starts).
+- Only the running kernel; no kernel headers (except in the VirtualBox box).
+- `apt-daily*` timers and `unattended-upgrades` disabled, so nothing holds
+  the dpkg lock while you provision.
+- 64 GB sparse disk, already grown. Box files are about 0.7 GB (libvirt)
+  and 0.8 GB (virtualbox).
+- VirtualBox box only: Guest Additions (shared folders via `vboxsf`), with
+  build tools and kernel headers kept so the modules rebuild on kernel
+  upgrades.
+
+## Building
+
+Requirements (macOS on Apple Silicon): Packer 1.9+, QEMU (Homebrew),
+VirtualBox 7.1+ for the VirtualBox box, Vagrant, `jq`, and `gh` for
+publishing.
+
+```bash
+make build                      # both providers, VERSION = today (YYYY.MM.DD)
+```
+
+```bash
+make build PROVIDERS=libvirt    # only the libvirt box
+```
+
+Boxes land in `boxes/`, named `ubuntu-26.04-<version>-<provider>-arm64.box`.
+
+### libvirt
+
+Packer's `qemu` builder boots the cloud image itself as the disk
+(`disk_image = true`) with HVF acceleration and UEFI. A NoCloud seed
+(`cloud-init/`), attached as a `cidata` CD only during the build, creates
+the `vagrant` user. `scripts/base.sh` upgrades packages and installs the
+files in `files/`. The VM then reboots into the upgraded kernel and
+`scripts/kernel.sh` purges the old kernel and the headers. `scripts/cleanup.sh`
+runs `cloud-init clean`, empties the machine-id, removes host keys, logs and
+caches, and trims free space so `qemu-img` can compress the image. The
+`vagrant` post-processor packages the qcow2 and `metadata.json` as a libvirt
+box. Packer prepends a `libvirt.driver = "qemu"` block to the box's
+Vagrantfile; vagrant-qemu ignores it.
+
+### virtualbox
+
+Packer cannot turn a qcow2 into a VirtualBox VM, and two ways were
+considered:
+
+1. **Reuse the libvirt image** (chosen). `scripts/make-vbox-ovf.sh`
+   converts the finished qcow2 to VMDK and wraps it in an ARM VirtualBox
+   OVF (EFI, VirtIO storage and NIC). Packer's `virtualbox-ovf` builder
+   imports it, installs the Guest Additions and runs the same cleanup, which
+   zero-fills free space here (VirtualBox ignores TRIM on VMDK disks).
+2. An autoinstall ISO build (bento-style). It would need its own installer
+   config and care to avoid the stale installer netplan file that causes
+   the bento delay, and the result would differ from the cloud-image base
+   used everywhere else.
+
+Option 1 keeps a single base: both boxes are the same configured cloud
+image, the VirtualBox build is short, and no installer runs at all.
+
+## Testing
+
+```bash
+make test
+```
+
+For each provider this writes a local catalog (`boxes/ubuntu-26.04.local.json`
+with `file://` URLs), removes any cached copy of that box version, runs
+`vagrant up` in a scratch directory (`--provider=qemu` for the libvirt box),
+and then:
+
+- fails if `systemd-analyze time` reports a boot over `MAX_BOOT` seconds
+  (default 15);
+- checks SSH, passwordless sudo, exactly one netplan file and
+  `systemctl is-system-running` = `running`;
+- VirtualBox only: mounts the project as a `vboxsf` shared folder;
+- reboots with `vagrant reload` and checks SSH again;
+- destroys the VM.
+
+The cached box is removed with `vagrant box remove --provider ...` but
+without `--architecture`: Vagrant 2.4.9 then wrongly reports that arm64 is
+not installed, which would leave an old build in the cache.
+
+## Publishing
+
+```bash
+make publish
+```
+
+1. Refuses any box of 2 GiB or more (GitHub's release asset limit).
+2. Adds the version to `ubuntu-26.04.json` with each provider's release URL
+   (`https://github.com/darkn3rd/hako/releases/download/ubuntu-26.04-v<version>/...`)
+   and sha256 checksum.
+3. Creates the GitHub release `ubuntu-26.04-v<version>` if needed and
+   uploads the boxes (`gh release upload --clobber`).
+
+Then commit and push `ubuntu-26.04.json`: Vagrant reads the catalog from the
+`main` branch. Release tags are per box (`ubuntu-26.04-v<version>`) so other
+distributions can share this repository.
+
+A rebuild changes the checksums, so publish the boxes you tested: `make
+publish` rewrites the catalog entries from the files in `boxes/`.
+
+To publish a box built on another day, pass its version:
+`make publish VERSION=2026.11.10`.
+
+## Layout
+
+```
+Makefile               build / test / publish
+ubuntu-26.04.json      Vagrant box catalog (committed)
+packer/                Packer templates (qemu + virtualbox-ovf sources)
+cloud-init/            NoCloud seed used only during the libvirt build
+files/                 netplan, cloud-init and systemd files put in the box
+scripts/               provisioning, catalog, OVF and test helpers
+vagrantfiles/box.rb    Vagrantfile embedded in the boxes
+```
+
+## Roadmap
+
+Planned, not implemented yet. A hako box file is about 700 MB (bento's are
+2.6-3.7 GB), which is why GitHub Releases, with its 2 GiB-per-asset limit,
+works as the download host.
+
+1. **Multi-architecture under one name**, like bento: `hako/ubuntu-26.04`
+   covers amd64 and arm64. The catalog gets one provider entry per
+   provider/architecture pair, each with its own `url` and sha256, and one
+   architecture per provider marked `default_architecture` (amd64). The
+   architecture never goes into the box name; splitting it (as robox does
+   with `generic-x64` / `generic-a64`) is a pre-Vagrant-2.4 pattern.
+2. **Build each architecture natively, never emulated.** arm64 on Apple
+   Silicon (as now); amd64 on x86 Linux hosts with KVM or on GitHub Actions
+   Ubuntu runners. Every arm64 assumption becomes a function of `ARCH`:
+   - cloud image URL (`amd64` vs `arm64`)
+   - `qemu_binary` (`qemu-system-x86_64` vs `qemu-system-aarch64`)
+   - `machine_type` (`q35` vs `virt,highmem=on`)
+   - accelerator (`kvm` / `hvf`)
+   - EDK2 firmware paths
+   - VirtualBox `--platform-architecture` / `--ostype`
+     (`x86` / `Ubuntu_64` vs `arm` / `Ubuntu_arm64`)
+3. **One version across hosts.** `VERSION` is passed explicitly; each host
+   uploads its own assets to the same release and merges its entries into
+   the catalog, keyed by provider and architecture. Each host tests only its
+   own architecture.
+4. **A `qemu` catalog entry** pointing at the same libvirt box file, as bento
+   does, so vagrant-qemu users get a direct provider match.
+5. **Hyper-V (amd64)**, which bento's 26.04 box does not offer:
+   - add `linux-cloud-tools` to the base image (`hv_kvp_daemon`, which
+     Vagrant needs to learn the VM's IP) and check that the initramfs has
+     `hv_vmbus`, `hv_netvsc` and `hv_storvsc`;
+   - convert the amd64 image with
+     `qemu-img convert -O vhdx -o subformat=dynamic` and package it as a
+     `hyperv` box (`Virtual Hard Disks/`, VM config if needed, and
+     `metadata.json` with `provider: hyperv`), for a Generation 2 VM with
+     Secure Boot off or the "Microsoft UEFI Certificate Authority" template;
+   - test on a Windows host (`vagrant up --provider hyperv` as
+     administrator) with the same boot-time and SSH checks;
+   - Hyper-V on Windows on ARM (arm64) is a later option.
+6. **Optional: register `hako/ubuntu-26.04` on the HCP Vagrant Registry**
+   (free for public boxes), with provider URLs pointing at the GitHub
+   release assets, so `config.vm.box = "hako/ubuntu-26.04"` works without
+   `box_url`.
+7. **Later providers:** `parallels`, `vmware_desktop`, `utm`.
+
+## License
+
+Apache-2.0, see [LICENSE](LICENSE).
