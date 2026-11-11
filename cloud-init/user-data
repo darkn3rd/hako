@@ -1,0 +1,25 @@
+#cloud-config
+# NoCloud seed used ONLY while Packer builds the box. It creates the
+# `vagrant` user with Vagrant's well-known insecure public keys so Packer
+# (and later Vagrant) can SSH in. The seed is not part of the final box,
+# and scripts/cleanup.sh resets cloud-init afterwards.
+users:
+  - name: vagrant
+    gecos: Vagrant
+    shell: /bin/bash
+    groups: [adm, sudo]
+    sudo: "ALL=(ALL) NOPASSWD:ALL"
+    lock_passwd: false
+    # Vagrant convention: password "vagrant" (console only; SSH password
+    # login stays disabled).
+    plain_text_passwd: vagrant
+    ssh_authorized_keys:
+      - ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEA6NF8iallvQVp22WDkTkyrtvp9eWW6A8YVr+kz4TjGYe7gHzIw+niNltGEFHzD8+v1I2YJ6oXevct1YeS0o9HZyN1Q9qgCgzUFtdOKLv6IedplqoPkcmF0aYet2PkEDo3MlTBckFXPITAMzF8dJSIFo9D8HfdOV0IAdx4O7PtixWKn5y2hMNG0zQPyUecp4pzC6kivAIhyfHilFR61RGL+GPXQ2MWZWFYbAGjyiYJnAmCP3NOTd0jMZEnDkbUvxhMmBYSdETk1rRgm+R4LOzFUGaHqHDLKLX+FIPKcF96hrucXzcWyLbIbEgE98OHlnVYCzRdK8jlqm8tehUc9c9WhQ== vagrant insecure public key
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIN1YdxBpNlzxDqfJyw/QKow1F+wvG9hXGoqiysfJOn5Y vagrant insecure public key
+ssh_pwauth: false
+# Grow the root partition to the full disk size Packer gives the VM.
+growpart:
+  mode: auto
+  devices: ["/"]
+package_update: false
+package_upgrade: false

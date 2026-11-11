@@ -14,3 +14,15 @@ crash.log
 
 # For built boxes
 *.box
+
+# Build outputs: boxes, VM images, Packer output dirs, logs
+boxes/
+output-*/
+*.qcow2
+*.img
+*.vmdk
+*.ovf
+*.vdi
+packer-*.log
+build-*.out
+.vagrant/
