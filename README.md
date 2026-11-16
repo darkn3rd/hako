@@ -25,12 +25,13 @@ takes 20-30 seconds.
 
 ## Using the box
 
-The catalog is not on HashiCorp's registry, so point `box_url` at it:
+The catalog is not on HashiCorp's registry, so point `box_url` at it. It's
+served by GitHub Pages, from this repository's `main` branch:
 
 ```ruby
 Vagrant.configure("2") do |config|
   config.vm.box     = "hako/ubuntu-26.04"
-  config.vm.box_url = "https://raw.githubusercontent.com/darkn3rd/hako/main/ubuntu-26.04.json"
+  config.vm.box_url = "https://darkn3rd.github.io/hako/ubuntu-26.04.json"
   # config.vm.box_version = "2026.11.10"   # optional pin
 
   # vagrant-qemu (libvirt box format)
@@ -173,8 +174,12 @@ make publish
 3. Creates the GitHub release `ubuntu-26.04-v<version>` if needed and
    uploads the boxes (`gh release upload --clobber`).
 
-Then commit and push `ubuntu-26.04.json`: Vagrant reads the catalog from the
-`main` branch. Release tags are per box (`ubuntu-26.04-v<version>`) so other
+Then commit and push `ubuntu-26.04.json`: GitHub Pages serves it from the
+`main` branch at `https://darkn3rd.github.io/hako/ubuntu-26.04.json`.
+Vagrant only reads a remote catalog served as `application/json`, so use the
+Pages URL, not `raw.githubusercontent.com` (served as `text/plain`) or a
+release asset (served as `application/octet-stream`); with those, Vagrant
+tries to unpack the JSON as a box. Release tags are per box (`ubuntu-26.04-v<version>`) so other
 distributions can share this repository.
 
 A rebuild changes the checksums, so publish the boxes you tested: `make
