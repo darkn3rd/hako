@@ -1,4 +1,4 @@
-# VirtualBox (ARM) box. Input is the finished libvirt image, converted to a
+# VirtualBox box (ARM or x86, matching var.arch). Input is the finished libvirt image, converted to a
 # VMDK inside an OVF by scripts/make-vbox-ovf.sh (Packer cannot import a
 # qcow2 into VirtualBox itself). The image already has the vagrant user and
 # a clean cloud-init state, so this build only adds the Guest Additions.
