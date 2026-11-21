@@ -5,7 +5,8 @@
 #
 # Creates CATALOG if missing. The version entry is created if needed (newest
 # version first) and the provider entry for PROVIDER+ARCH is replaced, with
-# the sha256 of BOX_FILE.
+# the sha256 of BOX_FILE. Per provider, amd64 is marked default_architecture
+# when the version has it; a version with a single architecture marks that one.
 set -euo pipefail
 
 catalog=$1 name=$2 version=$3 provider=$4 arch=$5 box=$6 url=$7
@@ -25,7 +26,10 @@ jq --arg name "$name" --arg v "$version" --arg p "$provider" --arg a "$arch" \
         .providers = ([.providers[] | select((.name == $p and .architecture == $a) | not)]
           + [{name: $p, architecture: $a, default_architecture: true,
               url: $url, checksum_type: "sha256", checksum: $sum}]
-          | sort_by(.name))
+          | group_by(.name)
+          | map((any(.[]; .architecture == "amd64")) as $amd64
+                | map(.default_architecture = (($amd64 | not) or .architecture == "amd64")))
+          | add | sort_by(.name, .architecture))
       else . end)
   | .versions |= sort_by(.version | split(".") | map(tonumber)) | .versions |= reverse
 ' "$catalog" > "$tmp"

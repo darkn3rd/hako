@@ -10,8 +10,9 @@
 
 OS         := ubuntu
 OS_VERSION := 26.04
-ARCH       := arm64
-NAME       := $(OS)-$(OS_VERSION)
+# Build natively for the host: arm64 on Apple Silicon, amd64 on Intel.
+ARCH       ?= $(if $(filter arm64 aarch64,$(shell uname -m)),arm64,amd64)
+NAME      := $(OS)-$(OS_VERSION)
 BOX        := hako/$(NAME)
 REPO       := darkn3rd/hako
 VERSION    ?= $(shell date +%Y.%m.%d)
@@ -27,8 +28,11 @@ LIBVIRT_IMAGE := output-libvirt/hako-$(NAME)-$(ARCH).qcow2
 # GitHub release assets must be under 2 GiB.
 MAX_ASSET     := 2147483648
 
+QEMU_SHARE ?= $(shell brew --prefix 2>/dev/null || echo /opt/homebrew)/share/qemu
+
 PACKER_VARS := -var box_version=$(VERSION) -var os_name=$(OS) \
-               -var os_version=$(OS_VERSION) -var arch=$(ARCH)
+               -var os_version=$(OS_VERSION) -var arch=$(ARCH) \
+               -var qemu_share_dir=$(QEMU_SHARE)
 
 .PHONY: all init build build-libvirt build-virtualbox test local-catalog catalog check-size publish clean
 
@@ -45,7 +49,7 @@ build-libvirt:
 # Reuses the finished libvirt image (see README): convert it to a VMDK in a
 # VirtualBox OVF, then let Packer add the VirtualBox Guest Additions.
 build-virtualbox: $(LIBVIRT_IMAGE)
-	scripts/make-vbox-ovf.sh $(LIBVIRT_IMAGE) output-vbox-import
+	scripts/make-vbox-ovf.sh $(LIBVIRT_IMAGE) output-vbox-import $(ARCH)
 	cd packer && packer build -force -only=hako.virtualbox-ovf.virtualbox $(PACKER_VARS) .
 
 $(LIBVIRT_IMAGE):
