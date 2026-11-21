@@ -2,6 +2,27 @@
   "name": "hako/ubuntu-26.04",
   "versions": [
     {
+      "version": "2026.11.21",
+      "providers": [
+        {
+          "name": "libvirt",
+          "architecture": "amd64",
+          "default_architecture": true,
+          "url": "https://github.com/darkn3rd/hako/releases/download/ubuntu-26.04-v2026.11.21/ubuntu-26.04-2026.11.21-libvirt-amd64.box",
+          "checksum_type": "sha256",
+          "checksum": "8d0363792cb82511216bc093256f76c66e36cecc92cbefffe0ed8a8a90f54e09"
+        },
+        {
+          "name": "virtualbox",
+          "architecture": "amd64",
+          "default_architecture": true,
+          "url": "https://github.com/darkn3rd/hako/releases/download/ubuntu-26.04-v2026.11.21/ubuntu-26.04-2026.11.21-virtualbox-amd64.box",
+          "checksum_type": "sha256",
+          "checksum": "24bb9da0df6eff83c6ec4ccf280e7d2cd4539bb777161c9b9036fb4830c3fc7f"
+        }
+      ]
+    },
+    {
       "version": "2026.11.10",
       "providers": [
         {
