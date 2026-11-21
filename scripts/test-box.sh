@@ -10,7 +10,6 @@ set -euo pipefail
 
 provider=$1 catalog_url=$2 version=$3
 max_boot=${MAX_BOOT:-15}
-here=$(cd "$(dirname "$0")/.." && pwd)
 
 case $provider in
   libvirt)    vagrant_provider=qemu ;;
@@ -51,7 +50,6 @@ Vagrant.configure("2") do |config|
 end
 VF
 
-cd "$workdir"
 start=$(date +%s)
 vagrant up --provider "$vagrant_provider"
 echo "vagrant up took $(( $(date +%s) - start ))s"
