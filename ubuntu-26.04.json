@@ -13,12 +13,28 @@
           "checksum": "8d0363792cb82511216bc093256f76c66e36cecc92cbefffe0ed8a8a90f54e09"
         },
         {
+          "name": "libvirt",
+          "architecture": "arm64",
+          "default_architecture": false,
+          "url": "https://github.com/darkn3rd/hako/releases/download/ubuntu-26.04-v2026.11.21/ubuntu-26.04-2026.11.21-libvirt-arm64.box",
+          "checksum_type": "sha256",
+          "checksum": "4257581d89e4180b7c79b36f0abb4a17e9220d9696789deea15b5161290e63c9"
+        },
+        {
           "name": "virtualbox",
           "architecture": "amd64",
           "default_architecture": true,
           "url": "https://github.com/darkn3rd/hako/releases/download/ubuntu-26.04-v2026.11.21/ubuntu-26.04-2026.11.21-virtualbox-amd64.box",
           "checksum_type": "sha256",
           "checksum": "24bb9da0df6eff83c6ec4ccf280e7d2cd4539bb777161c9b9036fb4830c3fc7f"
+        },
+        {
+          "name": "virtualbox",
+          "architecture": "arm64",
+          "default_architecture": false,
+          "url": "https://github.com/darkn3rd/hako/releases/download/ubuntu-26.04-v2026.11.21/ubuntu-26.04-2026.11.21-virtualbox-arm64.box",
+          "checksum_type": "sha256",
+          "checksum": "03164c7df39b8795a4aa7b439edeee3a1e269a85a622abfd6abf9b722b45609a"
         }
       ]
     },
