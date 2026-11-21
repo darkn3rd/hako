@@ -10,7 +10,6 @@ set -euo pipefail
 
 provider=$1 catalog_url=$2 version=$3
 max_boot=${MAX_BOOT:-15}
-here=$(cd "$(dirname "$0")/.." && pwd)
 
 case $provider in
   libvirt)    vagrant_provider=qemu ;;
@@ -21,8 +20,14 @@ esac
 workdir=$(mktemp -d "${TMPDIR:-/tmp}/hako-test.XXXXXX")
 trap 'cd "$workdir" && vagrant destroy -f >/dev/null 2>&1 || true; rm -rf "$workdir"' EXIT
 
+# Run every Vagrant command from the scratch dir: Vagrant loads the first
+# Vagrantfile it finds walking up from the current directory, so running from
+# the repo can pick up an unrelated one in a parent directory.
+cd "$workdir"
+
 # A rebuilt box keeps its version number, so drop any cached copy first.
-# (No --architecture: Vagrant 2.4.9 then claims arm64 is not installed.)
+# (No --architecture: Vagrant 2.4.9 then claims the architecture is not
+# installed, on arm64 and on amd64 alike.)
 if vagrant box list | grep -q "^hako/ubuntu-26.04 *($provider, $version"; then
   vagrant box remove hako/ubuntu-26.04 --box-version "$version" \
     --provider "$provider" --force
@@ -45,7 +50,6 @@ Vagrant.configure("2") do |config|
 end
 VF
 
-cd "$workdir"
 start=$(date +%s)
 vagrant up --provider "$vagrant_provider"
 echo "vagrant up took $(( $(date +%s) - start ))s"
@@ -57,7 +61,9 @@ for _ in $(seq 1 30); do
 done
 echo "$out"
 total=$(printf '%s\n' "$out" | sed -n 's/.*= \(.*\)$/\1/p' | head -1)
-seconds=$(printf '%s\n' "$total" | awk '{
+# LC_ALL=C: gawk 5.4.0 with no locale set never matches /s$/, which made this
+# parse silently return 0.0.
+seconds=$(printf '%s\n' "$total" | LC_ALL=C awk '{
   s = 0
   for (i = 1; i <= NF; i++) {
     v = $i
@@ -66,6 +72,10 @@ seconds=$(printf '%s\n' "$total" | awk '{
     else if (v ~ /s$/)   { sub(/s$/, "", v); s += v }
   }
   printf "%.1f", s }')
+if [[ -z $total || $seconds == 0.0 ]]; then
+  echo "FAIL: could not read the boot time from systemd-analyze" >&2
+  exit 1
+fi
 echo "boot time: ${seconds}s (limit ${max_boot}s)"
 
 vagrant ssh -c 'set -e

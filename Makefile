@@ -10,13 +10,33 @@
 
 OS         := ubuntu
 OS_VERSION := 26.04
-ARCH       := arm64
 NAME       := $(OS)-$(OS_VERSION)
 BOX        := hako/$(NAME)
 REPO       := darkn3rd/hako
-VERSION    ?= $(shell date +%Y.%m.%d)
 PROVIDERS  ?= libvirt virtualbox
 MAX_BOOT   ?= 15
+
+# Each lookup below runs once: ifndef keeps a value given on the command line
+# or in the environment, and := stores the result instead of re-running the
+# command every time the variable is used. That also keeps VERSION from
+# changing if a build runs past midnight.
+
+# Build natively for the host: arm64 on Apple Silicon, amd64 on Intel.
+ifndef ARCH
+ARCH := $(if $(filter arm64 aarch64,$(shell uname -m)),arm64,amd64)
+endif
+ifndef VERSION
+VERSION := $(shell date +%Y.%m.%d)
+endif
+ifndef QEMU_SHARE
+QEMU_SHARE := $(shell brew --prefix 2>/dev/null || echo /opt/homebrew)/share/qemu
+endif
+
+# Under Rosetta, an Apple Silicon Mac reports itself as x86_64, so the build
+# would pick amd64 and fail, since boxes are never emulated. Stop early instead.
+ifeq ($(shell sysctl -n sysctl.proc_translated 2>/dev/null),1)
+$(error make is running under Rosetta (x86_64) on Apple Silicon; run it from a native arm64 shell, for example: arch -arm64 make $(MAKECMDGOALS))
+endif
 
 CATALOG       := $(NAME).json
 LOCAL_CATALOG := boxes/$(NAME).local.json
@@ -28,7 +48,8 @@ LIBVIRT_IMAGE := output-libvirt/hako-$(NAME)-$(ARCH).qcow2
 MAX_ASSET     := 2147483648
 
 PACKER_VARS := -var box_version=$(VERSION) -var os_name=$(OS) \
-               -var os_version=$(OS_VERSION) -var arch=$(ARCH)
+               -var os_version=$(OS_VERSION) -var arch=$(ARCH) \
+               -var qemu_share_dir=$(QEMU_SHARE)
 
 .PHONY: all init build build-libvirt build-virtualbox test local-catalog catalog check-size publish clean
 
@@ -45,7 +66,7 @@ build-libvirt:
 # Reuses the finished libvirt image (see README): convert it to a VMDK in a
 # VirtualBox OVF, then let Packer add the VirtualBox Guest Additions.
 build-virtualbox: $(LIBVIRT_IMAGE)
-	scripts/make-vbox-ovf.sh $(LIBVIRT_IMAGE) output-vbox-import
+	scripts/make-vbox-ovf.sh $(LIBVIRT_IMAGE) output-vbox-import $(ARCH)
 	cd packer && packer build -force -only=hako.virtualbox-ovf.virtualbox $(PACKER_VARS) .
 
 $(LIBVIRT_IMAGE):
@@ -76,12 +97,22 @@ check-size:
 
 # Upload the boxes to the GitHub release $(TAG) (created if needed) and
 # update $(CATALOG). Commit and push the catalog afterwards.
+#
+# Each architecture is published from its own Mac, into the same release and
+# catalog version. So publish first checks that origin/main has no catalog
+# changes missing here (otherwise the other Mac's entries would be dropped),
+# and rewrites the release notes from every box in the release after uploading.
 publish: check-size
+	@git fetch -q origin main
+	@if [ -n "$$(git rev-list HEAD..origin/main -- $(CATALOG))" ]; then \
+	  echo "origin/main has $(CATALOG) changes this checkout lacks; pull first." >&2; exit 1; \
+	fi
 	$(MAKE) catalog VERSION=$(VERSION) PROVIDERS="$(PROVIDERS)"
 	gh release view $(TAG) --repo $(REPO) >/dev/null 2>&1 || \
-	  gh release create $(TAG) --repo $(REPO) --title "$(BOX) $(VERSION)" \
-	    --notes "Vagrant box $(BOX) $(VERSION) ($(ARCH): $(PROVIDERS)), built from the Ubuntu $(OS_VERSION) cloud image."
+	  gh release create $(TAG) --repo $(REPO) --title "$(BOX) $(VERSION)" --notes ""
 	gh release upload $(TAG) --repo $(REPO) --clobber $(foreach p,$(PROVIDERS),$(call box_file,$(p)))
+	scripts/release-notes.sh $(REPO) $(TAG) $(BOX) $(OS_VERSION) $(VERSION) | \
+	  gh release edit $(TAG) --repo $(REPO) --notes-file -
 	@echo "Now commit and push $(CATALOG)."
 
 clean:
