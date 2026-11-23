@@ -26,6 +26,11 @@ install -m 0644 /tmp/hako/hako-pacman-init.service /etc/systemd/system/hako-pacm
 systemctl enable hako-pacman-init.service
 systemctl disable pacman-init.service || true
 
+# The image enables systemd-time-wait-sync, which holds boot until NTP has
+# synced (about 35 s in a test VM). A VM takes its clock from the host, so
+# Vagrant boxes don't wait; systemd-timesyncd still keeps time afterwards.
+systemctl disable systemd-time-wait-sync.service || true
+
 # Vagrant-friendly sshd: no reverse DNS lookups on login.
 install -d -m 0755 /etc/ssh/sshd_config.d
 printf 'UseDNS no\n' > /etc/ssh/sshd_config.d/10-hako.conf

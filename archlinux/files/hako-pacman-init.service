@@ -5,9 +5,11 @@
 # boxes ship an empty /etc/machine-id (no systemd "first boot", which would
 # also re-apply unit presets), so it would never run. This unit keys off the
 # missing keyring instead, like hako-ssh-hostkeys.service does for host keys.
+#
+# Not ordered after time-sync.target (unlike the image's unit): a VM takes
+# its clock from the host, and waiting for NTP added half a minute to boot.
 [Unit]
 Description=Initialize the pacman keyring on first boot
-After=time-sync.target
 Before=sshd.service cloud-final.service archlinux-keyring-wkd-sync.service
 ConditionPathExists=!/etc/pacman.d/gnupg/trustdb.gpg
 
