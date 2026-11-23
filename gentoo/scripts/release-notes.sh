@@ -8,7 +8,7 @@ set -euo pipefail
 
 repo=$1 tag=$2 box=$3 version=$4
 
-printf 'Vagrant box %s %s, built from Gentoo's weekly cloud-init disk image.\n\n' "$box" "$version"
+printf 'Vagrant box %s %s, built from the weekly Gentoo cloud-init disk image.\n\n' "$box" "$version"
 printf '| Architecture | Providers |\n|---|---|\n'
 
 # Box files are named <name>-<version>-<provider>-<arch>.box; print one row
