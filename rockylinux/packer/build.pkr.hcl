@@ -28,11 +28,12 @@ build {
   }
 
   # Boot the upgraded kernel so the old one can be removed. The reboot is
-  # scheduled a few seconds out and Packer pauses past it, so it reconnects
-  # to the new boot instead of hanging on a half-stopped sshd.
+  # scheduled a few seconds out and Packer pauses past it. sshd stops right
+  # away (this session survives it), so however long the shutdown takes,
+  # Packer can only reconnect to the new boot, never to the old one.
   provisioner "shell" {
     only              = ["qemu.libvirt"]
-    inline            = ["sudo systemd-run --on-active=3 systemctl reboot"]
+    inline            = ["sudo systemd-run --on-active=3 systemctl reboot", "sudo systemctl stop sshd.service"]
     expect_disconnect = true
     pause_after       = "45s"
   }
