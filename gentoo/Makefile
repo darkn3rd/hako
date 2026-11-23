@@ -92,9 +92,14 @@ PACKER_VARS := -var box_version=$(VERSION) -var arch=$(ARCH) \
                -var accelerator=$(ACCEL) -var qemu_share_dir=$(QEMU_SHARE) \
                $(if $(EFI_CODE),-var efi_code=$(EFI_CODE)) $(if $(EFI_VARS),-var efi_vars=$(EFI_VARS))
 
-.PHONY: all preflight init build build-libvirt test local-catalog catalog check-size publish clean
+.PHONY: all doctor preflight init build build-libvirt test local-catalog catalog check-size publish clean
 
 all: build test
+
+# Check this machine for everything build, test and publish need, with the
+# commands that fix what is missing (read-only; see scripts/doctor).
+doctor:
+	@$(if $(filter command line environment,$(origin PROVIDERS)),PROVIDERS="$(PROVIDERS)") scripts/doctor
 
 # Fail early, naming every missing tool, instead of minutes into a build.
 # Packer needs an ISO tool for the cloud-init seed CD.

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Check that this machine can build and test the hako/gentoo box (macOS or
+# Linux, arm64 or amd64; libvirt only).
+# Read-only: it reports problems and prints the commands that fix them for
+# this platform. The checks are in ../../scripts/doctor-lib.sh.
+#
+#   scripts/doctor           (or: make doctor, or from the repo root: make gentoo-doctor)
+#
+# Exit status is 1 if any check fails; warnings do not fail it.
+DISTRO=gentoo
+BOX=hako/gentoo
+SUPPORTED="macos/arm64 macos/amd64 linux/arm64 linux/amd64"
+VIRTUALBOX=none
+EXTRA_TOOLS="curl"
+
+. "$(cd "$(dirname "$0")/../.." && pwd)/scripts/doctor-lib.sh"
+cd "$(dirname "$0")/.."
+doctor_main

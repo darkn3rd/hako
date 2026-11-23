@@ -133,7 +133,44 @@ config.vm.box_url = "file:///path/to/hako/boxes/ubuntu-26.04.local.json"
 
 Requirements (macOS, Apple Silicon or Intel): Packer 1.9+ (`brew install
 hashicorp/tap/packer`), QEMU (Homebrew), VirtualBox 7.1+ for the VirtualBox
-box, Vagrant 2.4+, `jq`, and `gh` for publishing.
+box, Vagrant 2.4+ with the `vagrant-qemu` plugin, `jq`, and `gh` for publishing.
+
+### Checking your machine
+
+Each distro directory has a read-only `doctor` that checks everything its
+build, test and publish steps need on this host and prints the commands that
+fix what's missing, for this platform:
+
+```bash
+make ubuntu-doctor              # or: cd ubuntu && make doctor
+```
+
+```bash
+make doctor                     # every distro, one after another
+```
+
+It checks:
+
+- that the distro builds on this host (Ubuntu: macOS only; Arch Linux: amd64
+  only; Gentoo: macOS or Linux, arm64 or amd64), and that the shell isn't
+  running under Rosetta on Apple Silicon;
+- hardware virtualization (HVF on macOS, a usable `/dev/kvm` on Linux);
+- Packer 1.9+ and the plugins the templates need, QEMU for the host's
+  architecture, `qemu-img`, the UEFI firmware, an ISO tool for the build's
+  cloud-init seed and `jq`;
+- Vagrant 2.4+, its insecure key (the build logs in with it), and the plugin
+  `make test` uses: `vagrant-qemu` on macOS, or `vagrant-libvirt` plus
+  access to libvirt and its `default` storage pool on Linux;
+- VirtualBox 7.1+ where the distro builds a VirtualBox box
+  (`PROVIDERS=libvirt make doctor` skips it);
+- `gh` signed in (a warning only: just `make publish` needs it), and free
+  disk space.
+
+Install hints cover Homebrew, Debian/Ubuntu (apt), Arch (pacman) and Fedora
+(dnf). Native Windows is detected and pointed at WSL2 with nested
+virtualization, which counts as a Linux host. Exit status is 1 if any check
+fails; warnings don't fail it. The checks live in `scripts/doctor-lib.sh`;
+each distro's `scripts/doctor` only says what that distro needs.
 
 Commands and paths in Building, Testing and Publishing are relative to
 `ubuntu/`. From the repo root, prefix the target with the distro instead:
@@ -360,7 +397,9 @@ sudo apt-get install xorriso ovmf        # Debian/Ubuntu
 cd archlinux && make
 ```
 
-`make build` runs a preflight check first and lists anything missing.
+`make build` runs a quick preflight check first and lists anything missing;
+`make doctor` checks more (Vagrant, libvirt access, plugins) and prints the
+commands that fix each problem.
 
 ## Gentoo
 
@@ -430,6 +469,7 @@ gentoo.json            Gentoo box catalog (created by the first publish)
 ubuntu/                Ubuntu 26.04 box
 archlinux/             Arch Linux box (same layout as ubuntu/)
 gentoo/                Gentoo box (same layout, libvirt only)
+scripts/doctor-lib.sh  checks shared by every distro's scripts/doctor
 third_party/moby/      Moby's check-config.sh, run by every test script
 
 Inside each distro directory:
@@ -437,7 +477,8 @@ Inside each distro directory:
   packer/              Packer templates (qemu + virtualbox-ovf sources)
   cloud-init/          NoCloud seed used only during the libvirt build
   files/               network, cloud-init and systemd files put in the box
-  scripts/             provisioning, catalog, OVF, release notes and test helpers
+  scripts/             provisioning, catalog, OVF, release notes, test helpers
+                       and doctor (make doctor)
   vagrantfiles/box.rb  Vagrantfile embedded in the boxes
 ```
 

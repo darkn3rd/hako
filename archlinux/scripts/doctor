@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Check that this machine can build and test the hako/archlinux box (amd64
+# only: Intel Mac or x86 Linux; libvirt, plus VirtualBox when installed).
+# Read-only: it reports problems and prints the commands that fix them for
+# this platform. The checks are in ../../scripts/doctor-lib.sh.
+#
+#   scripts/doctor           (or: make doctor, or from the repo root: make archlinux-doctor)
+#   PROVIDERS=libvirt scripts/doctor   # skip the VirtualBox checks
+#
+# Exit status is 1 if any check fails; warnings do not fail it.
+DISTRO=archlinux
+BOX=hako/archlinux
+SUPPORTED="macos/amd64 linux/amd64"
+VIRTUALBOX=optional
+EXTRA_TOOLS=""
+
+. "$(cd "$(dirname "$0")/../.." && pwd)/scripts/doctor-lib.sh"
+cd "$(dirname "$0")/.."
+doctor_main

@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# Check that this machine can build and test the hako/ubuntu-26.04 box
+# (macOS, Apple Silicon or Intel; libvirt and VirtualBox).
+# Read-only: it reports problems and prints the commands that fix them for
+# this platform. The checks are in ../../scripts/doctor-lib.sh.
+#
+#   scripts/doctor           (or: make doctor, or from the repo root: make ubuntu-doctor)
+#   PROVIDERS=libvirt scripts/doctor   # skip the VirtualBox checks
+#
+# Exit status is 1 if any check fails; warnings do not fail it.
+DISTRO=ubuntu
+BOX=hako/ubuntu-26.04
+SUPPORTED="macos/arm64 macos/amd64"
+VIRTUALBOX=required
+EXTRA_TOOLS=""
+
+. "$(cd "$(dirname "$0")/../.." && pwd)/scripts/doctor-lib.sh"
+cd "$(dirname "$0")/.."
+doctor_main
