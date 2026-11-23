@@ -37,11 +37,8 @@ endif
 
 # Under Rosetta, an Apple Silicon Mac reports itself as x86_64, so the build
 # would pick amd64 and fail, since boxes are never emulated. Stop early instead.
-# (make doctor reports this itself, with the rest.)
-ifneq ($(MAKECMDGOALS),doctor)
 ifeq ($(shell sysctl -n sysctl.proc_translated 2>/dev/null),1)
 $(error make is running under Rosetta (x86_64) on Apple Silicon; run it from a native arm64 shell, for example: arch -arm64 make $(MAKECMDGOALS))
-endif
 endif
 
 # The catalog lives at the repo root: GitHub Pages serves it from there.
@@ -58,14 +55,9 @@ PACKER_VARS := -var box_version=$(VERSION) -var os_name=$(OS) \
                -var os_version=$(OS_VERSION) -var arch=$(ARCH) \
                -var qemu_share_dir=$(QEMU_SHARE)
 
-.PHONY: all doctor init build build-libvirt build-virtualbox test local-catalog catalog check-size publish clean
+.PHONY: all init build build-libvirt build-virtualbox test local-catalog catalog check-size publish clean
 
 all: build test
-
-# Check this machine for everything build, test and publish need, with the
-# commands that fix what is missing (read-only; see scripts/doctor).
-doctor:
-	@$(if $(filter command line environment,$(origin PROVIDERS)),PROVIDERS="$(PROVIDERS)") scripts/doctor
 
 init:
 	cd packer && packer init .

@@ -134,43 +134,76 @@ config.vm.box_url = "file:///path/to/hako/boxes/ubuntu-26.04.local.json"
 Requirements (macOS, Apple Silicon or Intel): Packer 1.9+ (`brew install
 hashicorp/tap/packer`), QEMU (Homebrew), VirtualBox 7.1+ for the VirtualBox
 box, Vagrant 2.4+ with the `vagrant-qemu` plugin, `jq`, and `gh` for publishing.
+`mise run deps` installs them (see below).
 
-### Checking your machine
+### Setting up with mise
 
-Each distro directory has a read-only `doctor` that checks everything its
-build, test and publish steps need on this host and prints the commands that
-fix what's missing, for this platform:
-
-```bash
-make ubuntu-doctor              # or: cd ubuntu && make doctor
-```
+Each distro directory has its own `mise.toml` (there is none at the repo
+root). It pins the command-line tools (`packer`, `jq`, `gh`) and has tasks
+for setting up and checking the machine. Building, testing and publishing
+stay in the Makefile; the matching mise tasks just call it:
 
 ```bash
-make doctor                     # every distro, one after another
+cd ubuntu
+mise trust
+mise run deps                   # packer/jq/gh, then QEMU, Vagrant, plugins, ... for this platform
+mise run doctor                 # check everything, with the commands that fix what's missing
+mise run build                  # = make build; extra arguments pass on: mise run build PROVIDERS=libvirt
 ```
 
-It checks:
+| Task | What it runs |
+|---|---|
+| `mise run deps` | `mise install packer jq gh`, then `scripts/install-deps` (`--dry-run` prints the commands instead) |
+| `mise run doctor` | `scripts/doctor` |
+| `mise run build`, `test`, `all`, `publish`, `clean` | the `make` target of the same name |
+
+`scripts/install-deps` installs only what's missing, with the platform's
+package manager:
+
+- **macOS:** Homebrew installs QEMU (with its UEFI firmware), Vagrant, and
+  VirtualBox where the distro builds that box.
+- **Debian/Ubuntu, Arch, Fedora:** the package manager (with sudo) installs
+  QEMU for the host's architecture, OVMF/AAVMF firmware, `xorriso`, libvirt
+  and the headers `vagrant-libvirt` builds against. It then enables
+  `libvirtd` and adds you to the `kvm` and `libvirt` groups (log in again
+  afterwards).
+- **Vagrant on Linux:** on Debian/Ubuntu and Fedora it comes from
+  HashiCorp's repository, since distro packages are older than 2.4. On Arch
+  it comes from the AUR through `paru` or `yay`, if one is installed.
+- **Then, everywhere:** the Vagrant plugin `make test` uses (`vagrant-qemu`
+  on macOS, `vagrant-libvirt` on Linux), and Vagrant's insecure key, which
+  the build logs in with.
+
+VirtualBox isn't installed on Linux (distro packages are often older than
+7.1); the script says where to get it.
+
+`scripts/doctor` is read-only. It checks:
 
 - that the distro builds on this host (Ubuntu: macOS only; Arch Linux: amd64
   only; Gentoo: macOS or Linux, arm64 or amd64), and that the shell isn't
   running under Rosetta on Apple Silicon;
 - hardware virtualization (HVF on macOS, a usable `/dev/kvm` on Linux);
-- Packer 1.9+ and the plugins the templates need, QEMU for the host's
-  architecture, `qemu-img`, the UEFI firmware, an ISO tool for the build's
-  cloud-init seed and `jq`;
-- Vagrant 2.4+, its insecure key (the build logs in with it), and the plugin
-  `make test` uses: `vagrant-qemu` on macOS, or `vagrant-libvirt` plus
-  access to libvirt and its `default` storage pool on Linux;
+- mise (optional), Packer 1.9+ and the plugins the templates need, QEMU for
+  the host's architecture, `qemu-img`, the UEFI firmware, an ISO tool for
+  the build's cloud-init seed and `jq`;
+- Vagrant 2.4+, its insecure key, and the plugin `make test` uses:
+  `vagrant-qemu` on macOS, or `vagrant-libvirt` plus access to libvirt and
+  its `default` storage pool on Linux;
 - VirtualBox 7.1+ where the distro builds a VirtualBox box
-  (`PROVIDERS=libvirt make doctor` skips it);
+  (`PROVIDERS=libvirt mise run doctor` skips it);
 - `gh` signed in (a warning only: just `make publish` needs it), and free
   disk space.
 
-Install hints cover Homebrew, Debian/Ubuntu (apt), Arch (pacman) and Fedora
-(dnf). Native Windows is detected and pointed at WSL2 with nested
-virtualization, which counts as a Linux host. Exit status is 1 if any check
-fails; warnings don't fail it. The checks live in `scripts/doctor-lib.sh`;
-each distro's `scripts/doctor` only says what that distro needs.
+When something fails, the fixes start with `mise run deps`, followed by the
+individual commands for this platform (Homebrew, apt, pacman or dnf). Native
+Windows is detected and pointed at WSL2 with nested virtualization, which
+counts as a Linux host. Exit status is 1 if any check fails; warnings don't
+fail it.
+
+Both scripts work without mise too (`scripts/doctor`,
+`scripts/install-deps`). What a distro needs is in its
+`scripts/requirements.sh`; the shared code is in `scripts/doctor-lib.sh` and
+`scripts/install-deps-lib.sh` at the repo root.
 
 Commands and paths in Building, Testing and Publishing are relative to
 `ubuntu/`. From the repo root, prefix the target with the distro instead:
@@ -397,9 +430,10 @@ sudo apt-get install xorriso ovmf        # Debian/Ubuntu
 cd archlinux && make
 ```
 
-`make build` runs a quick preflight check first and lists anything missing;
-`make doctor` checks more (Vagrant, libvirt access, plugins) and prints the
-commands that fix each problem.
+`make build` runs a quick preflight check first and lists anything missing.
+`mise run deps` installs these on Debian/Ubuntu, Arch and Fedora, and
+`mise run doctor` checks more (Vagrant, libvirt access, plugins); see
+[Setting up with mise](#setting-up-with-mise).
 
 ## Gentoo
 
@@ -469,16 +503,19 @@ gentoo.json            Gentoo box catalog (created by the first publish)
 ubuntu/                Ubuntu 26.04 box
 archlinux/             Arch Linux box (same layout as ubuntu/)
 gentoo/                Gentoo box (same layout, libvirt only)
-scripts/doctor-lib.sh  checks shared by every distro's scripts/doctor
+scripts/               doctor-lib.sh and install-deps-lib.sh, shared by every
+                       distro's scripts/doctor and scripts/install-deps
 third_party/moby/      Moby's check-config.sh, run by every test script
 
 Inside each distro directory:
   Makefile             build / test / publish
+  mise.toml            tools (packer, jq, gh) and tasks: deps, doctor, and
+                       build/test/publish calling make
   packer/              Packer templates (qemu + virtualbox-ovf sources)
   cloud-init/          NoCloud seed used only during the libvirt build
   files/               network, cloud-init and systemd files put in the box
-  scripts/             provisioning, catalog, OVF, release notes, test helpers
-                       and doctor (make doctor)
+  scripts/             provisioning, catalog, OVF, release notes, test helpers;
+                       doctor, install-deps and requirements.sh (mise tasks)
   vagrantfiles/box.rb  Vagrantfile embedded in the boxes
 ```
 

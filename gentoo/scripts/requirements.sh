@@ -1,0 +1,8 @@
+# What building and testing this distro's boxes needs from the host; read by
+# scripts/doctor and scripts/install-deps (see ../../scripts/doctor-lib.sh for
+# what each setting means).
+DISTRO=gentoo
+BOX=hako/gentoo
+SUPPORTED="macos/arm64 macos/amd64 linux/arm64 linux/amd64"
+VIRTUALBOX=none
+EXTRA_TOOLS="curl"

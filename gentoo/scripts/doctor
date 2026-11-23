@@ -1,18 +1,15 @@
 #!/usr/bin/env bash
-# Check that this machine can build and test the hako/gentoo box (macOS or
-# Linux, arm64 or amd64; libvirt only).
+# Check that this machine can build, test and publish this distro's boxes.
 # Read-only: it reports problems and prints the commands that fix them for
-# this platform. The checks are in ../../scripts/doctor-lib.sh.
+# this platform. What the distro needs is in requirements.sh; the checks are
+# in ../../scripts/doctor-lib.sh.
 #
-#   scripts/doctor           (or: make doctor, or from the repo root: make gentoo-doctor)
+#   scripts/doctor                     (or: mise run doctor)
+#   PROVIDERS=libvirt scripts/doctor   # skip the VirtualBox checks
 #
 # Exit status is 1 if any check fails; warnings do not fail it.
-DISTRO=gentoo
-BOX=hako/gentoo
-SUPPORTED="macos/arm64 macos/amd64 linux/arm64 linux/amd64"
-VIRTUALBOX=none
-EXTRA_TOOLS="curl"
-
-. "$(cd "$(dirname "$0")/../.." && pwd)/scripts/doctor-lib.sh"
-cd "$(dirname "$0")/.."
+here=$(cd "$(dirname "$0")" && pwd)
+. "$here/requirements.sh"
+. "$here/../../scripts/doctor-lib.sh"
+cd "$here/.."
 doctor_main

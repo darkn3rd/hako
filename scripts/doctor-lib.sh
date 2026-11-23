@@ -1,11 +1,11 @@
-# Shared checks for each distro's scripts/doctor: can this machine build and
-# test that distro's boxes? Read-only: it reports problems and prints the
+# Shared checks for each distro's scripts/doctor (mise run doctor): can this
+# machine build and test that distro's boxes? Read-only: it reports problems and prints the
 # commands that fix them, for the platform it runs on (macOS on Apple
 # Silicon or Intel, Debian/Ubuntu, Arch, Fedora; native Windows and WSL are
 # recognised and told what is and isn't supported).
 #
-# A distro's scripts/doctor sets these, then sources this file and calls
-# doctor_main:
+# A distro's scripts/doctor sources its requirements.sh, which sets these,
+# then this file, and calls doctor_main:
 #
 #   DISTRO      directory name, e.g. gentoo
 #   BOX         box name, e.g. hako/gentoo
@@ -15,8 +15,8 @@
 #               only when VBoxManage is installed) or none (libvirt only)
 #   EXTRA_TOOLS more commands the build needs, e.g. curl
 #
-# PROVIDERS from the environment (as make passes it) overrides what is
-# checked: PROVIDERS=libvirt skips VirtualBox.
+# PROVIDERS from the environment overrides what is checked, as it does for
+# make build: PROVIDERS=libvirt skips VirtualBox.
 #
 # Exit status is 1 if any check fails; warnings do not fail it.
 #
@@ -111,8 +111,14 @@ detect_platform() {
   esac
 }
 
+# Tools the distro's mise.toml installs (mise install).
+MISE_TOOLS="packer jq gh"
+
 # The install command for one requirement on this platform.
 install_hint() {
+  case " $MISE_TOOLS " in
+    *" $1 "*) if have mise && [ -f mise.toml ]; then echo "mise install"; return; fi ;;
+  esac
   local q_sys q_apt q_dnf fw_apt fw_pac fw_dnf
   if [ "$HOST_ARCH" = arm64 ]; then
     q_sys=qemu-system-aarch64 q_apt=qemu-system-arm q_dnf=qemu-system-aarch64
@@ -238,6 +244,15 @@ check_virtualization() {
 check_build_tools() {
   section "Build tools"
   local v q fw_code fw_vars share
+
+  # mise installs packer, jq and gh from mise.toml, and the rest with
+  # mise run deps; the build itself doesn't need it.
+  if have mise; then
+    ok "mise $(version_of "$(mise --version 2>/dev/null)")"
+  else
+    warn "mise not found (optional: it installs packer, jq and gh, and runs mise run deps)"
+    fix "$( [ "$HOST_OS" = macos ] && echo "brew install mise" || echo "curl https://mise.run | sh   # or see https://mise.jdx.dev/installing-mise.html")"
+  fi
 
   if have packer; then
     v=$(version_of "$(packer --version 2>/dev/null)")
@@ -435,6 +450,10 @@ doctor_main() {
     check_disk
   fi
   echo ""
+  # mise run deps installs everything the platform hints below name.
+  if [ "$ERRORS" -gt 0 ] && have mise && [ -f mise.toml ] && [ -x scripts/install-deps ]; then
+    FIXES=("mise run deps   # installs what is missing below, for this platform" ${FIXES[@]+"${FIXES[@]}"})
+  fi
   if [ ${#FIXES[@]} -gt 0 ]; then
     printf '%s=== %s ===%s\n' "$HEADING" "To fix" "$RESET"
     printf '  %s\n' "${FIXES[@]}" | awk '!seen[$0]++'
