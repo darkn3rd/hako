@@ -22,6 +22,11 @@ mkinitcpio -P
 
 # Per-VM pacman keyring, created on first boot (see the unit). It replaces
 # the image's pacman-init.service, which hako boxes would never run.
+keyrings=/usr/local/share/hako/pacman-keyrings   # populate source, see the unit
+install -d -m 0755 "$keyrings"
+: > "$keyrings/archlinux.gpg"
+ln -sf /usr/share/pacman/keyrings/archlinux-trusted "$keyrings/archlinux-trusted"
+ln -sf /usr/share/pacman/keyrings/archlinux-revoked "$keyrings/archlinux-revoked"
 install -m 0644 /tmp/hako/hako-pacman-init.service /etc/systemd/system/hako-pacman-init.service
 systemctl enable hako-pacman-init.service
 systemctl disable pacman-init.service || true

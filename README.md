@@ -327,8 +327,11 @@ The differences:
   headers in the box and nothing to rebuild on kernel upgrades.
 - **Docker** is tested the same way; the test VM installs it with
   `pacman -S docker`.
-- **pacman keyring** is removed at cleanup and created on each VM's first
-  boot by `hako-pacman-init.service`, so VMs don't share a master key. (The
+- **pacman keyring** keeps only the public packager keys at cleanup; each
+  VM's first boot, in `hako-pacman-init.service`, creates its own master key
+  and signs the trusted keys with it, so VMs don't share a master key. The
+  keys are imported at build time because importing them is the slow part of
+  first boot. (The
   image's own `pacman-init.service` needs a systemd "first boot", which hako
   boxes don't have: they ship an empty `/etc/machine-id`, as the Ubuntu box
   does.)

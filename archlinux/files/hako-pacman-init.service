@@ -1,13 +1,23 @@
-# Installed by hako. The box ships without a pacman keyring so every VM gets
-# its own master key; create it on the first boot of each VM.
+# Installed by hako. The box ships a keyring with only the public Arch Linux
+# packager keys (no master key, no trust database) so every VM gets its own
+# master key; create it on the first boot of each VM.
 #
 # The image's own pacman-init.service has ConditionFirstBoot=yes, but hako
 # boxes ship an empty /etc/machine-id (no systemd "first boot", which would
 # also re-apply unit presets), so it would never run. This unit keys off the
-# missing keyring instead, like hako-ssh-hostkeys.service does for host keys.
+# missing trust database instead, like hako-ssh-hostkeys.service does for
+# host keys.
 #
 # Not ordered after time-sync.target (unlike the image's unit): a VM takes
 # its clock from the host, and waiting for NTP added half a minute to boot.
+#
+# The packager keys were already imported at build time (importing them takes
+# about 4 s: pacman's keyring uses GnuPG's slow legacy pubring.gpg format), so
+# --populate runs against /usr/local/share/hako/pacman-keyrings, whose
+# archlinux.gpg is empty (gpg reports "no valid OpenPGP data found", which is
+# harmless) and whose -trusted/-revoked lists link to the package's. pacman-key
+# then only signs the trusted keys with this VM's master key, sets their trust
+# and disables the revoked ones.
 [Unit]
 Description=Initialize the pacman keyring on first boot
 Before=sshd.service cloud-final.service archlinux-keyring-wkd-sync.service
@@ -16,7 +26,7 @@ ConditionPathExists=!/etc/pacman.d/gnupg/trustdb.gpg
 [Service]
 Type=oneshot
 ExecStart=/usr/bin/pacman-key --init
-ExecStart=/usr/bin/pacman-key --populate
+ExecStart=/usr/bin/pacman-key --populate-from /usr/local/share/hako/pacman-keyrings --populate
 
 [Install]
 WantedBy=multi-user.target

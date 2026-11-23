@@ -17,10 +17,21 @@ ls -l /etc/systemd/network
 test "$(ls /etc/systemd/network/*.network | wc -l)" -eq 1
 
 # Every VM gets its own pacman master key: hako-pacman-init.service creates
-# the keyring on first boot when it is missing.
+# it on first boot while the trust database is missing. Ship only the public
+# packager keys, imported now because importing them is the slow part of
+# first boot (see the unit). pubring.gpg must exist first: pacman uses GnuPG's
+# legacy keyring format, not the default keybox.
 systemctl is-enabled hako-pacman-init.service
-gpgconf --homedir /etc/pacman.d/gnupg --kill gpg-agent 2>/dev/null || true
-rm -rf /etc/pacman.d/gnupg
+keyring=/etc/pacman.d/gnupg
+gpgconf --homedir "$keyring" --kill all 2>/dev/null || true
+rm -rf "$keyring"
+install -d -m 0755 "$keyring"
+touch "$keyring/pubring.gpg"
+gpg --homedir "$keyring" --no-permission-warning --quiet --import /usr/share/pacman/keyrings/archlinux.gpg 2>/dev/null || true
+test "$(gpg --homedir "$keyring" --no-permission-warning --list-keys --with-colons | grep -c '^pub')" -gt 10
+gpgconf --homedir "$keyring" --kill all 2>/dev/null || true
+find "$keyring" -mindepth 1 ! -name pubring.gpg -delete
+ls -l "$keyring"
 
 # New machine-id (and DHCP DUID) on first boot of every VM.
 truncate -s 0 /etc/machine-id
