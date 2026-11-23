@@ -335,6 +335,20 @@ make archlinux-build archlinux-test     # from the repo root, or: cd archlinux &
 make archlinux-publish
 ```
 
+On an x86 Linux host the build uses KVM and the distro's OVMF firmware
+(found automatically; override with `EFI_CODE=... EFI_VARS=...`), and
+`make test` boots the libvirt box with vagrant-libvirt instead of
+vagrant-qemu. You need `xorriso` (for the build's cloud-init CD), `ovmf`,
+access to `/dev/kvm` and to libvirt (the `kvm` and `libvirt` groups; log in
+again after adding them). Without VirtualBox, build only the libvirt box:
+
+```bash
+sudo apt-get install xorriso ovmf        # Debian/Ubuntu
+make archlinux-build archlinux-test PROVIDERS=libvirt
+```
+
+`make build` runs a preflight check first and lists anything missing.
+
 ## Layout
 
 ```

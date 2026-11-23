@@ -38,6 +38,19 @@ variable "qemu_share_dir" {
   default     = "/opt/homebrew/share/qemu"
 }
 
+# Full paths to the UEFI firmware, for hosts whose QEMU does not ship the
+# edk2-*.fd files (Debian/Ubuntu: /usr/share/OVMF/OVMF_CODE_4M.fd and
+# OVMF_VARS_4M.fd). Empty means qemu_share_dir plus the edk2 file names.
+variable "efi_code" {
+  type    = string
+  default = ""
+}
+
+variable "efi_vars" {
+  type    = string
+  default = ""
+}
+
 variable "disk_size" {
   type        = string
   description = "Virtual (sparse) disk size of the box."
@@ -78,6 +91,9 @@ locals {
     : "${local.image_base}/Arch-Linux-x86_64-cloudimg.qcow2")
   cloud_image_checksum = (var.cloud_image_checksum != "" ? var.cloud_image_checksum
     : "file:${local.image_base}/Arch-Linux-x86_64-cloudimg.qcow2.SHA256")
+
+  efi_code_path = var.efi_code != "" ? var.efi_code : "${var.qemu_share_dir}/${local.cfg.efi_code}"
+  efi_vars_path = var.efi_vars != "" ? var.efi_vars : "${var.qemu_share_dir}/${local.cfg.efi_vars}"
 
   # x86 uses the same edk2 vars template as 32-bit x86
   # (edk2-i386-vars.fd pairs with edk2-x86_64-code.fd).

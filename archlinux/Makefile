@@ -29,12 +29,34 @@ endif
 ifndef VERSION
 VERSION := $(shell date +%Y.%m.%d)
 endif
+HOST_OS := $(shell uname -s)
+
+# QEMU accelerator, and the Vagrant provider that boots the libvirt box in
+# make test: hvf + vagrant-qemu on an Intel Mac, kvm + vagrant-libvirt on an
+# x86 Linux host.
+ifeq ($(HOST_OS),Darwin)
+ACCEL           ?= hvf
+LIBVIRT_VAGRANT ?= qemu
+else
+ACCEL           ?= kvm
+LIBVIRT_VAGRANT ?= libvirt
+endif
+
+# UEFI firmware. Homebrew's QEMU ships edk2-*.fd in QEMU_SHARE; Linux distros
+# package it separately (OVMF), so on Linux pick the first pair found:
+# Debian/Ubuntu, Arch, Fedora. Override with EFI_CODE=... EFI_VARS=...
+ifeq ($(HOST_OS),Darwin)
 ifndef QEMU_SHARE
 QEMU_SHARE := $(shell brew --prefix 2>/dev/null || echo /opt/homebrew)/share/qemu
 endif
-# hvf on an Intel Mac; kvm on an x86 Linux host.
-ifndef ACCEL
-ACCEL := $(if $(filter Darwin,$(shell uname -s)),hvf,kvm)
+else
+QEMU_SHARE ?= /usr/share/qemu
+ovmf_pairs := /usr/share/OVMF/OVMF_CODE_4M.fd:/usr/share/OVMF/OVMF_VARS_4M.fd \
+              /usr/share/edk2/x64/OVMF_CODE.4m.fd:/usr/share/edk2/x64/OVMF_VARS.4m.fd \
+              /usr/share/edk2/ovmf/OVMF_CODE.fd:/usr/share/edk2/ovmf/OVMF_VARS.fd
+ovmf_pair  := $(firstword $(foreach p,$(ovmf_pairs),$(if $(wildcard $(subst :, ,$(p))),$(p))))
+EFI_CODE   ?= $(word 1,$(subst :, ,$(ovmf_pair)))
+EFI_VARS   ?= $(word 2,$(subst :, ,$(ovmf_pair)))
 endif
 
 ifneq ($(ARCH),amd64)
@@ -51,13 +73,31 @@ LIBVIRT_IMAGE := output-libvirt/hako-$(NAME)-$(ARCH).qcow2
 MAX_ASSET     := 2147483648
 
 PACKER_VARS := -var box_version=$(VERSION) -var arch=$(ARCH) \
-               -var accelerator=$(ACCEL) -var qemu_share_dir=$(QEMU_SHARE)
+               -var accelerator=$(ACCEL) -var qemu_share_dir=$(QEMU_SHARE) \
+               $(if $(EFI_CODE),-var efi_code=$(EFI_CODE)) $(if $(EFI_VARS),-var efi_vars=$(EFI_VARS))
 
-.PHONY: all init build build-libvirt build-virtualbox test local-catalog catalog check-size publish clean
+.PHONY: all preflight init build build-libvirt build-virtualbox test local-catalog catalog check-size publish clean
 
 all: build test
 
-init:
+# Fail early, naming every missing tool, instead of minutes into a build.
+# Packer needs an ISO tool for the cloud-init seed CD.
+preflight:
+	@missing=; \
+	for c in packer qemu-system-x86_64 qemu-img jq; do \
+	  command -v $$c >/dev/null || missing="$$missing $$c"; done; \
+	command -v xorriso >/dev/null || command -v mkisofs >/dev/null || \
+	  command -v hdiutil >/dev/null || missing="$$missing xorriso"; \
+	case " $(PROVIDERS) " in *" virtualbox "*) \
+	  command -v VBoxManage >/dev/null || missing="$$missing VBoxManage(or-PROVIDERS=libvirt)";; esac; \
+	if [ -n "$$missing" ]; then echo "missing:$$missing" >&2; exit 1; fi
+	@if [ "$(HOST_OS)" != Darwin ]; then \
+	  [ -n "$(EFI_CODE)" ] && [ -f "$(EFI_CODE)" ] && [ -f "$(EFI_VARS)" ] || \
+	    { echo "no UEFI firmware found; install ovmf (Debian/Ubuntu), edk2-ovmf (Arch/Fedora) or pass EFI_CODE= EFI_VARS=" >&2; exit 1; }; \
+	  [ -r /dev/kvm ] && [ -w /dev/kvm ] || { echo "no access to /dev/kvm (add yourself to the kvm group)" >&2; exit 1; }; \
+	fi
+
+init: preflight
 	cd packer && packer init .
 
 build: init $(addprefix build-,$(PROVIDERS))
@@ -81,7 +121,8 @@ local-catalog:
 	  $(call box_file,$(p)) file://$(CURDIR)/$(call box_file,$(p)) &&) true
 
 test: local-catalog
-	@$(foreach p,$(PROVIDERS),MAX_BOOT=$(MAX_BOOT) DOCKER_TEST=$(DOCKER_TEST) scripts/test-box.sh $(p) \
+	@$(foreach p,$(PROVIDERS),MAX_BOOT=$(MAX_BOOT) DOCKER_TEST=$(DOCKER_TEST) \
+	  LIBVIRT_VAGRANT=$(LIBVIRT_VAGRANT) scripts/test-box.sh $(p) \
 	  file://$(CURDIR)/$(LOCAL_CATALOG) $(VERSION) &&) true
 
 # Update the committed catalog with the release download URLs + checksums.

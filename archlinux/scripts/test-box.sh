@@ -20,7 +20,8 @@ docker_install='pacman -Sy --noconfirm --needed docker'
 max_boot=${MAX_BOOT:-15}
 
 case $provider in
-  libvirt)    vagrant_provider=qemu ;;
+  # vagrant-qemu on macOS, vagrant-libvirt on Linux (set by the Makefile).
+  libvirt)    vagrant_provider=${LIBVIRT_VAGRANT:-qemu} ;;
   virtualbox) vagrant_provider=virtualbox ;;
   *) echo "unknown provider $provider" >&2; exit 2 ;;
 esac
@@ -54,6 +55,11 @@ Vagrant.configure("2") do |config|
   end
   config.vm.provider "qemu" do |qe|
     qe.ssh_auto_correct = true
+  end
+  # vagrant-libvirt defaults to 512 MB, too little for the Docker test.
+  config.vm.provider "libvirt" do |lv|
+    lv.memory = 2048
+    lv.cpus   = 2
   end
 end
 VF

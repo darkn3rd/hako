@@ -18,8 +18,8 @@ source "qemu" "libvirt" {
   cpus         = var.cpus
   memory       = var.memory
   efi_boot          = true
-  efi_firmware_code = "${var.qemu_share_dir}/${local.cfg.efi_code}"
-  efi_firmware_vars = "${var.qemu_share_dir}/${local.cfg.efi_vars}"
+  efi_firmware_code = local.efi_code_path
+  efi_firmware_vars = local.efi_vars_path
   efi_drop_efivars  = true
 
   net_device       = "virtio-net-pci"
