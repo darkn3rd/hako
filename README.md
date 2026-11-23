@@ -10,19 +10,21 @@ this repository's GitHub Releases with a Vagrant box catalog.
 | `hako/ubuntu-26.04` | amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` |
 | `hako/archlinux`    | amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` (new, not yet published) |
 | `hako/gentoo`       | arm64, amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt) (new, not yet published; amd64 not yet built) |
+| `hako/rockylinux-10` | arm64, amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` (new, not yet published; amd64 not yet built) |
 
 Both architectures share one box name; Vagrant picks the one matching the
 host. Each is built natively on a host of its own architecture (never
 emulated), so arm64 boxes come from an Apple Silicon Mac and amd64 boxes from
 an Intel one.
 
-Catalogs: [`ubuntu-26.04.json`](ubuntu-26.04.json), `archlinux.json` and
-`gentoo.json` (each written by that distro's first `make publish`)
+Catalogs: [`ubuntu-26.04.json`](ubuntu-26.04.json), `archlinux.json`,
+`gentoo.json` and `rockylinux-10.json` (each written by that distro's first
+`make publish`)
 
 Each distribution builds from its own directory, [`ubuntu/`](ubuntu) and
-[`archlinux/`](archlinux) and [`gentoo/`](gentoo). The rest of this README
-describes the Ubuntu box; see [Arch Linux](#arch-linux) and [Gentoo](#gentoo)
-for how those differ.
+[`archlinux/`](archlinux), [`gentoo/`](gentoo) and [`rockylinux/`](rockylinux).
+The rest of this README describes the Ubuntu box; see [Arch Linux](#arch-linux),
+[Gentoo](#gentoo) and [Rocky Linux](#rocky-linux) for how those differ.
 
 ## Why
 
@@ -180,7 +182,7 @@ VirtualBox isn't installed on Linux (distro packages are often older than
 `scripts/doctor` is read-only. It checks:
 
 - that the distro builds on this host (Ubuntu: macOS only; Arch Linux: amd64
-  only; Gentoo: macOS or Linux, arm64 or amd64), and that the shell isn't
+  only; Gentoo and Rocky Linux: macOS or Linux, arm64 or amd64), and that the shell isn't
   running under Rosetta on Apple Silicon;
 - hardware virtualization (HVF on macOS, a usable `/dev/kvm` on Linux);
 - mise (optional), Packer 1.9+ and the plugins the templates need, QEMU for
@@ -493,6 +495,54 @@ On a Linux host the build uses KVM and the distro's firmware (OVMF for
 amd64, AAVMF/edk2-aarch64 for arm64; override with `EFI_CODE=... EFI_VARS=...`)
 and `make test` uses vagrant-libvirt, as for Arch Linux.
 
+## Rocky Linux
+
+`rockylinux/` builds `hako/rockylinux-10` from Rocky Linux's official
+GenericCloud Base image (`Rocky-10-GenericCloud-Base-10.x-<date>.<arch>.qcow2`:
+XFS, GRUB with BLS, NetworkManager, SELinux enforcing, cloud-init), for the
+same providers as Ubuntu. The differences:
+
+- **arm64 and amd64, on a Mac or a Linux host.** As for Gentoo, the Makefile
+  picks HVF or KVM and the firmware for the host. A Mac builds both providers
+  by default; Linux builds `virtualbox` only when VirtualBox is installed.
+- **x86-64-v3 for amd64.** Rocky 10's x86_64 build needs a Haswell-or-newer
+  CPU (AVX2), on the build host and wherever the box runs.
+- **Image lookup.** `make build` takes the newest dated image and its
+  checksum from Rocky's mirror (`scripts/cloud-image.sh`), so the box records
+  the point release it came from in `/etc/hako-release`. Pin one with
+  `CLOUD_IMAGE_URL=... CLOUD_IMAGE_CHECKSUM=sha256:...`.
+- **Upgraded at build time** with `dnf upgrade`, then rebooted so only the
+  running kernel is kept.
+- **Ready for Docker** with `kernel-modules-extra` installed: the cloud image
+  has only `kernel-modules-core`, and `br_netfilter`, `nft_compat` and the
+  iptables modules Docker loads are in `-extra`.
+- **Networking** has no profile files at all: NetworkManager brings up every
+  ethernet NIC with DHCP on its own ("Wired connection N"), and a profile
+  Vagrant or a cloud-init seed adds takes over its NIC. The build removes
+  the profile cloud-init wrote, which was tied to the build VM's MAC address.
+- **Faster boot.** kdump is disabled (it reserved up to 256 MB of RAM), GRUB
+  doesn't wait, `rngd` is removed, and the box's Vagrantfile gives
+  vagrant-qemu and vagrant-libvirt VMs a virtio RNG. Without one, the kernel
+  gathered boot entropy for about 6 s under HVF, doubling the boot time. A
+  Vagrantfile that sets its own `extra_qemu_args` replaces the box's.
+- **SSH host keys** are regenerated per VM by Rocky's own
+  `sshd-keygen@.service`; no hako unit is needed.
+- **VirtualBox:** RHEL kernels have no `vboxguest`/`vboxsf`, so, as for
+  Ubuntu, the Guest Additions are built from the ISO; `gcc`, `make` and
+  `kernel-devel` stay installed for rebuilds after kernel updates.
+- **Docker** is tested the same way; the test VM installs Docker CE from
+  Docker's CentOS/RHEL repository.
+
+Measured on Apple Silicon (arm64): boot ~5-6 s and `vagrant up` ~20 s with
+vagrant-qemu; boot ~8 s and `vagrant up` ~34 s with VirtualBox. Box files are
+about 0.6 GB (libvirt) and 0.9 GB (virtualbox, which keeps the compiler and
+kernel headers for the Guest Additions).
+
+```bash
+cd rockylinux && make                   # build, then test (or from the root: make rockylinux-all)
+make rockylinux-publish
+```
+
 ## Layout
 
 ```
@@ -500,9 +550,11 @@ Makefile               forwards <distro>-<target> to the distro directory
 ubuntu-26.04.json      Ubuntu box catalog (committed, served by GitHub Pages)
 archlinux.json         Arch Linux box catalog (created by the first publish)
 gentoo.json            Gentoo box catalog (created by the first publish)
+rockylinux-10.json     Rocky Linux box catalog (created by the first publish)
 ubuntu/                Ubuntu 26.04 box
 archlinux/             Arch Linux box (same layout as ubuntu/)
 gentoo/                Gentoo box (same layout, libvirt only)
+rockylinux/            Rocky Linux 10 box (same layout)
 scripts/               doctor-lib.sh and install-deps-lib.sh, shared by every
                        distro's scripts/doctor and scripts/install-deps
 third_party/moby/      Moby's check-config.sh, run by every test script
