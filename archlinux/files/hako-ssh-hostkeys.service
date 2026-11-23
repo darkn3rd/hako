@@ -1,0 +1,21 @@
+# Installed by hako. The box ships without SSH host keys so every VM gets
+# its own; generate them on first boot before sshd can start.
+#
+# DefaultDependencies=no: with the defaults this unit would start after
+# basic.target, which comes after sockets.target, which comes after
+# sshd.socket -- an ordering cycle that systemd may break by dropping it.
+# (Same unit as the Ubuntu box, so both distros behave alike; on Arch the
+# units are sshd.service/sshd.socket.)
+[Unit]
+Description=Generate SSH host keys on first boot
+DefaultDependencies=no
+After=local-fs.target
+Before=sshd.socket sshd.service sockets.target
+ConditionPathExistsGlob=!/etc/ssh/ssh_host_*_key
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/ssh-keygen -A
+
+[Install]
+WantedBy=sockets.target
