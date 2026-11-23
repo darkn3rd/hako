@@ -9,18 +9,20 @@ this repository's GitHub Releases with a Vagrant box catalog.
 | `hako/ubuntu-26.04` | arm64        | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` |
 | `hako/ubuntu-26.04` | amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` |
 | `hako/archlinux`    | amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` (new, not yet published) |
+| `hako/gentoo`       | arm64, amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt) (new, not yet published; amd64 not yet built) |
 
 Both architectures share one box name; Vagrant picks the one matching the
 host. Each is built natively on a host of its own architecture (never
 emulated), so arm64 boxes come from an Apple Silicon Mac and amd64 boxes from
 an Intel one.
 
-Catalogs: [`ubuntu-26.04.json`](ubuntu-26.04.json), `archlinux.json` (written by
-the first Arch Linux `make publish`)
+Catalogs: [`ubuntu-26.04.json`](ubuntu-26.04.json), `archlinux.json` and
+`gentoo.json` (each written by that distro's first `make publish`)
 
 Each distribution builds from its own directory, [`ubuntu/`](ubuntu) and
-[`archlinux/`](archlinux). The rest of this README describes the Ubuntu box;
-see [Arch Linux](#arch-linux) for how that one differs.
+[`archlinux/`](archlinux) and [`gentoo/`](gentoo). The rest of this README
+describes the Ubuntu box; see [Arch Linux](#arch-linux) and [Gentoo](#gentoo)
+for how those differ.
 
 ## Why
 
@@ -360,15 +362,75 @@ cd archlinux && make
 
 `make build` runs a preflight check first and lists anything missing.
 
+## Gentoo
+
+`gentoo/` builds `hako/gentoo` from Gentoo's official cloud-init disk image
+(`di-<arch>-cloudinit-<timestamp>.qcow2`, rebuilt weekly by release
+engineering: systemd profile, dist-kernel, XFS root, GRUB, cloud-init). The
+differences from the Ubuntu box:
+
+- **arm64 and amd64**, one box name, as for Ubuntu. Each is built natively;
+  the Makefile picks the architecture from `uname -m`.
+- **No OS version.** Gentoo is a rolling release: the box is `hako/gentoo`,
+  the date version is the snapshot, and release tags are `gentoo-v<version>`.
+  The image's file name carries its build timestamp, so `make build` looks up
+  the latest one (`scripts/cloud-image.sh`, from
+  `latest-di-<arch>-cloudinit.txt` and the image's `.sha256`). Pin one with
+  `CLOUD_IMAGE_URL=... CLOUD_IMAGE_CHECKSUM=sha256:...`. The box records the
+  image it came from in `/etc/hako-release`.
+- **Packages are not upgraded at build time.** The image is at most a week
+  old, and an `@world` update would compile from source, the kernel included,
+  turning a two-minute build into hours.
+- **Binary packages by default.** The image already lists Gentoo's binhost
+  (signatures verified); the box adds `FEATURES="getbinpkg"` to `make.conf`,
+  so `emerge` installs prebuilt packages where they match instead of
+  compiling.
+- **No ebuild repository in the box** (the image ships none either). Fetch
+  one before the first `emerge`:
+
+  ```bash
+  sudo emerge-webrsync
+  ```
+
+- **No linux-firmware.** A VM loads no hardware firmware, and the package is
+  about 640 MB; removing it takes the box from 1.1 GB to 0.8 GB. It is also
+  removed from `@world`, so updates don't bring it back.
+- **Networking** is one systemd-networkd file, as in the Arch box.
+- **cloud-init stays off without a seed.** Gentoo's cloud-init enables itself
+  when no datasource is found, then fails four units and writes a network
+  file on every plain `vagrant up`. `/etc/cloud/ds-identify.cfg` sets
+  `notfound=disabled`; a VM with a NoCloud seed still runs cloud-init.
+- **sshd** is enabled as a unit (the image only starts it from cloud-init),
+  and the GRUB menu timeout is 0.
+- **libvirt only.** Neither architecture's dist-kernel has the
+  `vboxguest`/`vboxsf` modules, and the image has no kernel build tree to
+  compile the Guest Additions against, so there is no VirtualBox box yet.
+- **Docker** is tested the same way; the test VM runs `emerge-webrsync` and
+  installs `app-containers/docker` from the binhost (nothing is compiled).
+
+Measured on Apple Silicon (arm64, vagrant-qemu): boot ~8 s, `vagrant up`
+~20 s, box 0.8 GB.
+
+```bash
+cd gentoo && make                       # build, then test (or from the root: make gentoo-all)
+make gentoo-publish
+```
+
+On a Linux host the build uses KVM and the distro's firmware (OVMF for
+amd64, AAVMF/edk2-aarch64 for arm64; override with `EFI_CODE=... EFI_VARS=...`)
+and `make test` uses vagrant-libvirt, as for Arch Linux.
+
 ## Layout
 
 ```
 Makefile               forwards <distro>-<target> to the distro directory
 ubuntu-26.04.json      Ubuntu box catalog (committed, served by GitHub Pages)
 archlinux.json         Arch Linux box catalog (created by the first publish)
+gentoo.json            Gentoo box catalog (created by the first publish)
 ubuntu/                Ubuntu 26.04 box
 archlinux/             Arch Linux box (same layout as ubuntu/)
-third_party/moby/      Moby's check-config.sh, run by both test scripts
+gentoo/                Gentoo box (same layout, libvirt only)
+third_party/moby/      Moby's check-config.sh, run by every test script
 
 Inside each distro directory:
   Makefile             build / test / publish

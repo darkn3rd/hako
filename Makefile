@@ -1,4 +1,4 @@
-# Each distro builds from its own directory (ubuntu/, archlinux/). These
+# Each distro builds from its own directory (ubuntu/, archlinux/, gentoo/). These
 # targets forward to them, e.g.:
 #
 #   make ubuntu-build PROVIDERS=libvirt   # = make -C ubuntu build PROVIDERS=libvirt
@@ -6,7 +6,7 @@
 #
 # Catalogs (*.json) stay at the repo root, where GitHub Pages serves them.
 
-DISTROS := ubuntu archlinux
+DISTROS := ubuntu archlinux gentoo
 
 .PHONY: $(DISTROS) clean
 
