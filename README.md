@@ -8,13 +8,19 @@ this repository's GitHub Releases with a Vagrant box catalog.
 |---------------------|--------------|-----------------------------------------------|
 | `hako/ubuntu-26.04` | arm64        | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` |
 | `hako/ubuntu-26.04` | amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` |
+| `hako/archlinux`    | amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` (new, not yet published) |
 
 Both architectures share one box name; Vagrant picks the one matching the
 host. Each is built natively on a host of its own architecture (never
 emulated), so arm64 boxes come from an Apple Silicon Mac and amd64 boxes from
 an Intel one.
 
-Catalog: [`ubuntu-26.04.json`](ubuntu-26.04.json)
+Catalogs: [`ubuntu-26.04.json`](ubuntu-26.04.json), `archlinux.json` (written by
+the first Arch Linux `make publish`)
+
+Each distribution builds from its own directory, [`ubuntu/`](ubuntu) and
+[`archlinux/`](archlinux). The rest of this README describes the Ubuntu box;
+see [Arch Linux](#arch-linux) for how that one differs.
 
 ## Why
 
@@ -116,6 +122,10 @@ config.vm.box_url = "file:///path/to/hako/boxes/ubuntu-26.04.local.json"
 - VirtualBox box only: Guest Additions (shared folders via `vboxsf`), with
   build tools and kernel headers kept so the modules rebuild on kernel
   upgrades.
+- Ready for Docker: the kernel and its installed modules have everything
+  Docker needs (checked by every `make test`, see Testing). Docker itself is
+  not preinstalled; `sudo apt-get install docker.io` (or Docker's own
+  packages) works as-is.
 
 ## Building
 
@@ -123,7 +133,12 @@ Requirements (macOS, Apple Silicon or Intel): Packer 1.9+ (`brew install
 hashicorp/tap/packer`), QEMU (Homebrew), VirtualBox 7.1+ for the VirtualBox
 box, Vagrant 2.4+, `jq`, and `gh` for publishing.
 
+Commands and paths in Building, Testing and Publishing are relative to
+`ubuntu/`. From the repo root, prefix the target with the distro instead:
+`make ubuntu-build`, `make ubuntu-test`, `make ubuntu-publish`.
+
 ```bash
+cd ubuntu
 make build                      # both providers, VERSION = today (YYYY.MM.DD)
 ```
 
@@ -207,7 +222,18 @@ and then:
   `systemctl is-system-running` = `running`;
 - VirtualBox only: mounts the project as a `vboxsf` shared folder;
 - reboots with `vagrant reload` and checks SSH again;
+- runs Moby's [`check-config.sh`](third_party/moby/check-config.sh) in the
+  VM and fails if a feature Docker requires is missing (optional ones such as
+  ZFS are only reported);
+- loads the kernel modules Docker uses (`overlay`, `br_netfilter`, `veth`,
+  netfilter/NAT), since `check-config.sh` only reads the kernel config and
+  would not notice a module file missing from the box;
+- unless `DOCKER_TEST=0`: installs Docker in the test VM (not the box), runs
+  a container with outbound HTTP and serves a page on a published port;
 - destroys the VM.
+
+`make test DOCKER_TEST=0` skips the Docker install, for example without
+Docker Hub access; the kernel and module checks still run.
 
 The cached box is removed with `vagrant box remove --provider ...` but
 without `--architecture`: Vagrant 2.4.9 then wrongly reports that the
@@ -277,16 +303,80 @@ Either Mac can go first. Each one tests only its own architecture, and
 `make publish` refuses to run on a checkout that's missing the other Mac's
 catalog changes.
 
+## Arch Linux
+
+`archlinux/` builds `hako/archlinux` the same way, from the official
+[arch-boxes](https://gitlab.archlinux.org/archlinux/arch-boxes) cloud image
+(`Arch-Linux-x86_64-cloudimg.qcow2`, which ships cloud-init like Ubuntu's).
+The differences:
+
+- **amd64 only.** Arch Linux publishes no arm64 cloud image (Arch Linux ARM
+  is a separate project), so the Makefile stops on an arm64 host. Build on an
+  Intel Mac (HVF) or an x86 Linux host (KVM; `ACCEL` is picked from `uname -s`).
+- **No OS version.** Arch is a rolling release: the box is `hako/archlinux`,
+  the date version is the package snapshot, and release tags are
+  `archlinux-v<version>`.
+- **Networking** is one systemd-networkd file,
+  `/etc/systemd/network/99-hako-ethernet.network` (DHCP on any `e*` NIC),
+  instead of netplan. It sorts last, so per-NIC files from Vagrant or a
+  cloud-init seed win for their NIC.
+- **No kernel cleanup.** pacman replaces the kernel in place; the build still
+  reboots once so the box is checked to boot the upgraded kernel.
+- **VirtualBox** support comes from `virtualbox-guest-utils-nox`: the Arch
+  kernel already has `vboxguest`/`vboxsf`, so there are no build tools or
+  headers in the box and nothing to rebuild on kernel upgrades.
+- **Docker** is tested the same way; the test VM installs it with
+  `pacman -S docker`.
+- **pacman keyring** keeps only the public packager keys at cleanup; each
+  VM's first boot, in `hako-pacman-init.service`, creates its own master key
+  and signs the trusted keys with it, so VMs don't share a master key. The
+  keys are imported at build time because importing them is the slow part of
+  first boot. (The
+  image's own `pacman-init.service` needs a systemd "first boot", which hako
+  boxes don't have: they ship an empty `/etc/machine-id`, as the Ubuntu box
+  does.)
+- **initramfs without autodetect**, as arch-boxes builds it, so a kernel
+  upgrade during the build doesn't drop the SATA drivers the VirtualBox box
+  boots from.
+
+```bash
+cd archlinux && make                    # build, then test (or from the root: make archlinux-all)
+make archlinux-publish
+```
+
+On an x86 Linux host the build uses KVM and the distro's OVMF firmware
+(found automatically; override with `EFI_CODE=... EFI_VARS=...`), and
+`make test` boots the libvirt box with vagrant-libvirt instead of
+vagrant-qemu. You need `xorriso` (for the build's cloud-init CD), `ovmf`,
+access to `/dev/kvm` and to libvirt (the `kvm` and `libvirt` groups; log in
+again after adding them). The VirtualBox box is built only when
+`VBoxManage` is installed, so on a host without it `make` builds and tests
+just the libvirt box:
+
+```bash
+sudo apt-get install xorriso ovmf        # Debian/Ubuntu
+cd archlinux && make
+```
+
+`make build` runs a preflight check first and lists anything missing.
+
 ## Layout
 
 ```
-Makefile               build / test / publish
-ubuntu-26.04.json      Vagrant box catalog (committed)
-packer/                Packer templates (qemu + virtualbox-ovf sources)
-cloud-init/            NoCloud seed used only during the libvirt build
-files/                 netplan, cloud-init and systemd files put in the box
-scripts/               provisioning, catalog, OVF, release notes and test helpers
-vagrantfiles/box.rb    Vagrantfile embedded in the boxes
+Makefile               forwards <distro>-<target> to the distro directory
+ubuntu-26.04.json      Ubuntu box catalog (committed, served by GitHub Pages)
+archlinux.json         Arch Linux box catalog (created by the first publish)
+ubuntu/                Ubuntu 26.04 box
+archlinux/             Arch Linux box (same layout as ubuntu/)
+third_party/moby/      Moby's check-config.sh, run by both test scripts
+
+Inside each distro directory:
+  Makefile             build / test / publish
+  packer/              Packer templates (qemu + virtualbox-ovf sources)
+  cloud-init/          NoCloud seed used only during the libvirt build
+  files/               network, cloud-init and systemd files put in the box
+  scripts/             provisioning, catalog, OVF, release notes and test helpers
+  vagrantfiles/box.rb  Vagrantfile embedded in the boxes
 ```
 
 ## Roadmap

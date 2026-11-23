@@ -3,12 +3,18 @@
 #   - boot (systemd-analyze) must finish within MAX_BOOT seconds
 #   - SSH works, sudo is passwordless, exactly one netplan file, no failed
 #     units, and the VM comes back after a reboot
+#   - the kernel passes Moby's check-config.sh, Docker's modules load, and
+#     (unless DOCKER_TEST=0) Docker runs containers with networking
 # then destroy the VM.
 #
 #   scripts/test-box.sh PROVIDER(libvirt|virtualbox) CATALOG_URL VERSION
 set -euo pipefail
 
 provider=$1 catalog_url=$2 version=$3
+# Vendored from moby/moby (see third_party/moby/README.md).
+check_config=$(cd "$(dirname "$0")/../../third_party/moby" && pwd)/check-config.sh
+# Runs as root in the guest, only for the Docker test.
+docker_install='apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install -y -q docker.io'
 max_boot=${MAX_BOOT:-15}
 
 case $provider in
@@ -94,6 +100,46 @@ fi
 # A second boot must work too (no first-boot-only luck).
 vagrant reload
 vagrant ssh -c 'systemctl is-system-running --wait && uptime'
+
+# Docker: every kernel feature Docker requires must be configured (Moby's
+# check-config.sh exits non-zero otherwise), the modules must really be on
+# disk (check-config only reads the kernel config), and a container must run
+# with outbound networking and a published port.
+vagrant upload "$check_config" /tmp/check-config.sh
+vagrant ssh -c 'sudo NO_COLOR=1 sh /tmp/check-config.sh'
+vagrant ssh -c 'set -e
+  for m in overlay veth bridge br_netfilter nf_nat nf_conntrack nf_tables nft_compat \
+           xt_conntrack xt_addrtype xt_MASQUERADE xt_mark ip_tables iptable_filter \
+           iptable_nat ip6_tables ip6table_filter ip6table_nat; do
+    sudo modprobe "$m" || { echo "FAIL: cannot load kernel module $m" >&2; exit 1; }
+  done
+  echo "docker kernel modules: ok"'
+
+# Install Docker in the throwaway test VM (not in the box) and run
+# containers. DOCKER_TEST=0 skips this, e.g. without Docker Hub access.
+if [[ ${DOCKER_TEST:-1} == 1 ]]; then
+  {
+    printf '#!/usr/bin/env bash\nset -euxo pipefail\n%s\n' "$docker_install"
+    cat <<'SH'
+systemctl enable --now docker
+docker info --format 'storage driver: {{.Driver}}, cgroup: {{.CgroupVersion}}'
+docker run --rm busybox wget -q --spider http://example.com
+echo "container egress: ok"
+docker run -d --name hako-web -p 8080:80 busybox \
+  sh -c 'mkdir -p /www && echo hako > /www/index.html && exec httpd -f -p 80 -h /www'
+ok=
+for _ in $(seq 1 15); do
+  if [ "$(curl -fsS http://127.0.0.1:8080/ 2>/dev/null)" = hako ]; then ok=1; break; fi
+  sleep 1
+done
+docker rm -f hako-web
+[ -n "$ok" ] || { echo "FAIL: no reply on published port 8080" >&2; exit 1; }
+echo "published port: ok"
+SH
+  } > "$workdir/docker-test.sh"
+  vagrant upload "$workdir/docker-test.sh" /tmp/docker-test.sh
+  vagrant ssh -c 'sudo bash /tmp/docker-test.sh'
+fi
 
 if awk -v s="$seconds" -v m="$max_boot" 'BEGIN { exit !(s > m) }'; then
   echo "FAIL: boot took ${seconds}s, over ${max_boot}s" >&2
