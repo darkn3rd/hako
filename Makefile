@@ -1,12 +1,12 @@
 # Each distro builds from its own directory (ubuntu/, archlinux/, gentoo/,
-# rockylinux/). These targets forward to them, e.g.:
+# rockylinux/, almalinux/). These targets forward to them, e.g.:
 #
 #   make ubuntu-build PROVIDERS=libvirt   # = make -C ubuntu build PROVIDERS=libvirt
 #   make archlinux-test
 #
 # Catalogs (*.json) stay at the repo root, where GitHub Pages serves them.
 
-DISTROS := ubuntu archlinux gentoo rockylinux
+DISTROS := ubuntu archlinux gentoo rockylinux almalinux
 
 .PHONY: $(DISTROS) clean
 
