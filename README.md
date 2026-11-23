@@ -327,8 +327,14 @@ The differences:
   headers in the box and nothing to rebuild on kernel upgrades.
 - **Docker** is tested the same way; the test VM installs it with
   `pacman -S docker`.
-- **pacman keyring** is removed at cleanup and recreated on each VM's first
-  boot by the image's `pacman-init.service`, so VMs don't share a master key.
+- **pacman keyring** is removed at cleanup and created on each VM's first
+  boot by `hako-pacman-init.service`, so VMs don't share a master key. (The
+  image's own `pacman-init.service` needs a systemd "first boot", which hako
+  boxes don't have: they ship an empty `/etc/machine-id`, as the Ubuntu box
+  does.)
+- **initramfs without autodetect**, as arch-boxes builds it, so a kernel
+  upgrade during the build doesn't drop the SATA drivers the VirtualBox box
+  boots from.
 
 ```bash
 make archlinux-build archlinux-test     # from the repo root, or: cd archlinux && make build test

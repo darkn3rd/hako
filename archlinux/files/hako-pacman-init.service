@@ -1,0 +1,20 @@
+# Installed by hako. The box ships without a pacman keyring so every VM gets
+# its own master key; create it on the first boot of each VM.
+#
+# The image's own pacman-init.service has ConditionFirstBoot=yes, but hako
+# boxes ship an empty /etc/machine-id (no systemd "first boot", which would
+# also re-apply unit presets), so it would never run. This unit keys off the
+# missing keyring instead, like hako-ssh-hostkeys.service does for host keys.
+[Unit]
+Description=Initialize the pacman keyring on first boot
+After=time-sync.target
+Before=sshd.service cloud-final.service archlinux-keyring-wkd-sync.service
+ConditionPathExists=!/etc/pacman.d/gnupg/trustdb.gpg
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/pacman-key --init
+ExecStart=/usr/bin/pacman-key --populate
+
+[Install]
+WantedBy=multi-user.target

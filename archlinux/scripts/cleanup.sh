@@ -16,11 +16,11 @@ rm -f /etc/systemd/network/10-cloud-init-*.network
 ls -l /etc/systemd/network
 test "$(ls /etc/systemd/network/*.network | wc -l)" -eq 1
 
-# Every VM gets its own pacman master key: pacman-init.service recreates the
-# keyring on first boot when it is missing. Keep it if that unit is gone.
-if systemctl cat pacman-init.service >/dev/null 2>&1; then
-  rm -rf /etc/pacman.d/gnupg
-fi
+# Every VM gets its own pacman master key: hako-pacman-init.service creates
+# the keyring on first boot when it is missing.
+systemctl is-enabled hako-pacman-init.service
+gpgconf --homedir /etc/pacman.d/gnupg --kill gpg-agent 2>/dev/null || true
+rm -rf /etc/pacman.d/gnupg
 
 # New machine-id (and DHCP DUID) on first boot of every VM.
 truncate -s 0 /etc/machine-id

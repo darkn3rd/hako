@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Boot a hako box with Vagrant from a catalog and check it:
 #   - boot (systemd-analyze) must finish within MAX_BOOT seconds
-#   - SSH works, sudo is passwordless, exactly one networkd file, no failed
-#     units, and the VM comes back after a reboot
+#   - SSH works, sudo is passwordless, exactly one networkd file, a per-VM
+#     pacman keyring, no failed units, and the VM comes back after a reboot
 #   - the kernel passes Moby's check-config.sh, Docker's modules load, and
 #     (unless DOCKER_TEST=0) Docker runs containers with networking
 # then destroy the VM.
@@ -96,6 +96,13 @@ vagrant ssh -c 'set -e
   echo "hostname: $(hostname)  kernel: $(uname -r)"
   sudo -n true && echo "passwordless sudo: ok"
   ls /etc/systemd/network; test "$(ls /etc/systemd/network/*.network | wc -l)" -eq 1
+  # The keyring is created on first boot (hako-pacman-init.service): this
+  # VM'"'"'s own master key plus the Arch Linux packager keys.
+  sudo gpg --homedir /etc/pacman.d/gnupg --list-secret-keys pacman@localhost >/dev/null
+  test "$(sudo pacman-key --list-keys 2>/dev/null | grep -c ^pub)" -gt 10
+  echo "pacman keyring: ok"
+  # No autodetect: the initramfs must also boot from SATA (VirtualBox).
+  grep -q "^default_options=\"-S autodetect\"" /etc/mkinitcpio.d/linux.preset
   state=$(systemctl is-system-running --wait || true)
   echo "system state: $state"
   if [ "$state" != running ]; then systemctl --failed --no-pager; exit 1; fi

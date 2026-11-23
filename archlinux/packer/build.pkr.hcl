@@ -17,6 +17,7 @@ build {
       "${path.root}/../files/99-hako-ethernet.network",
       "${path.root}/../files/99-hako.cfg",
       "${path.root}/../files/hako-ssh-hostkeys.service",
+      "${path.root}/../files/hako-pacman-init.service",
     ]
     destination = "/tmp/hako/"
   }
