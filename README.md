@@ -337,7 +337,7 @@ The differences:
   boots from.
 
 ```bash
-make archlinux-build archlinux-test     # from the repo root, or: cd archlinux && make build test
+cd archlinux && make                    # build, then test (or from the root: make archlinux-all)
 make archlinux-publish
 ```
 
@@ -346,11 +346,13 @@ On an x86 Linux host the build uses KVM and the distro's OVMF firmware
 `make test` boots the libvirt box with vagrant-libvirt instead of
 vagrant-qemu. You need `xorriso` (for the build's cloud-init CD), `ovmf`,
 access to `/dev/kvm` and to libvirt (the `kvm` and `libvirt` groups; log in
-again after adding them). Without VirtualBox, build only the libvirt box:
+again after adding them). The VirtualBox box is built only when
+`VBoxManage` is installed, so on a host without it `make` builds and tests
+just the libvirt box:
 
 ```bash
 sudo apt-get install xorriso ovmf        # Debian/Ubuntu
-make archlinux-build archlinux-test PROVIDERS=libvirt
+cd archlinux && make
 ```
 
 `make build` runs a preflight check first and lists anything missing.

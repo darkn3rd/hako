@@ -1,7 +1,9 @@
 # Build, test and publish the hako Arch Linux Vagrant box. Run from archlinux/
 # (or from the repo root: make archlinux-build, make archlinux-test, ...).
 #
-#   make build                      # libvirt + virtualbox boxes into boxes/
+#   make                            # build, then test (from archlinux/)
+#   make build                      # boxes into boxes/: libvirt, plus
+#                                   # virtualbox when VBoxManage is installed
 #   make build PROVIDERS=libvirt    # just one provider
 #   make test                       # vagrant up each box from a local catalog
 #   make publish                    # GitHub release + update ../archlinux.json
@@ -17,7 +19,8 @@ OS         := archlinux
 NAME       := $(OS)
 BOX        := hako/$(NAME)
 REPO       := darkn3rd/hako
-PROVIDERS  ?= libvirt virtualbox
+# The virtualbox box is built only on hosts that have VirtualBox.
+PROVIDERS  ?= libvirt$(if $(shell command -v VBoxManage 2>/dev/null), virtualbox)
 MAX_BOOT   ?= 15
 # 0 skips installing Docker and running containers in make test.
 DOCKER_TEST ?= 1
@@ -89,7 +92,7 @@ preflight:
 	command -v xorriso >/dev/null || command -v mkisofs >/dev/null || \
 	  command -v hdiutil >/dev/null || missing="$$missing xorriso"; \
 	case " $(PROVIDERS) " in *" virtualbox "*) \
-	  command -v VBoxManage >/dev/null || missing="$$missing VBoxManage(or-PROVIDERS=libvirt)";; esac; \
+	  command -v VBoxManage >/dev/null || missing="$$missing VBoxManage";; esac; \
 	if [ -n "$$missing" ]; then echo "missing:$$missing" >&2; exit 1; fi
 	@if [ "$(HOST_OS)" != Darwin ]; then \
 	  [ -n "$(EFI_CODE)" ] && [ -f "$(EFI_CODE)" ] && [ -f "$(EFI_VARS)" ] || \
