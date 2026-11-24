@@ -10,19 +10,20 @@ this repository's GitHub Releases with a Vagrant box catalog.
 | `hako/ubuntu-26.04` | amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` |
 | `hako/archlinux`    | amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` (new, not yet published) |
 | `hako/gentoo`       | arm64, amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt) (new, not yet published; amd64 not yet built) |
+| `hako/endeavouros`  | arm64, amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` (new, not yet published; amd64 not yet built) |
 
 Both architectures share one box name; Vagrant picks the one matching the
 host. Each is built natively on a host of its own architecture (never
 emulated), so arm64 boxes come from an Apple Silicon Mac and amd64 boxes from
 an Intel one.
 
-Catalogs: [`ubuntu-26.04.json`](ubuntu-26.04.json), `archlinux.json` and
-`gentoo.json` (each written by that distro's first `make publish`)
+Catalogs: [`ubuntu-26.04.json`](ubuntu-26.04.json), `archlinux.json`,
+`gentoo.json` and `endeavouros.json` (each written by that distro's first `make publish`)
 
-Each distribution builds from its own directory, [`ubuntu/`](ubuntu) and
-[`archlinux/`](archlinux) and [`gentoo/`](gentoo). The rest of this README
-describes the Ubuntu box; see [Arch Linux](#arch-linux) and [Gentoo](#gentoo)
-for how those differ.
+Each distribution builds from its own directory: [`ubuntu/`](ubuntu),
+[`archlinux/`](archlinux), [`gentoo/`](gentoo) and [`endeavouros/`](endeavouros). The rest
+of this README describes the Ubuntu box; see [Arch Linux](#arch-linux),
+[Gentoo](#gentoo) and [EndeavourOS](#endeavouros) for how those differ.
 
 ## Why
 
@@ -493,6 +494,64 @@ On a Linux host the build uses KVM and the distro's firmware (OVMF for
 amd64, AAVMF/edk2-aarch64 for arm64; override with `EFI_CODE=... EFI_VARS=...`)
 and `make test` uses vagrant-libvirt, as for Arch Linux.
 
+## EndeavourOS
+
+`endeavouros/` builds `hako/endeavouros`. EndeavourOS has no cloud image
+(its ISO boots a graphical installer), but it is Arch Linux plus its own
+repository and tools, and EndeavourOS ARM is installed that way on top of
+Arch Linux ARM. The build does the same in two steps:
+
+1. **Install** (`make build-installer`): a helper VM booted from Debian's
+   generic cloud image, with a second empty disk, unpacks an Arch root file
+   system onto it (Arch's bootstrap tarball on amd64, its SHA-256 from the
+   mirror over HTTPS; Arch Linux ARM's generic aarch64 tarball on arm64, its
+   signature checked against the Arch Linux ARM build key) and, in a chroot,
+   installs the base system, kernel, sshd, sudo, systemd-boot and the
+   vagrant user, then adds the `[endeavouros]` repository (its keyring and
+   mirror list) and the EndeavourOS tools: `eos-hooks` (which brands
+   os-release), `eos-update`, `eos-rankmirrors` and `yay`.
+2. **Box** (`make build-libvirt`): Packer boots that disk on its own, checks
+   it and cleans it up; it becomes the libvirt box. The VirtualBox box is
+   made from it.
+
+The differences from the Ubuntu box:
+
+- **arm64 and amd64**, one box name, each built natively, with libvirt and
+  VirtualBox boxes.
+- **No OS version.** EndeavourOS is a rolling release: the box is
+  `hako/endeavouros`, the date version is the snapshot, and release tags are
+  `endeavouros-v<version>`. `/etc/hako-release` records the root file system
+  it came from.
+- **As in the Arch box:** one systemd-networkd file for every NIC, a generic
+  initramfs (no autodetect hook), SSH host keys and a pacman master key made
+  on each VM's first boot (the box ships only the public Arch or Arch Linux
+  ARM and EndeavourOS keys).
+- **systemd-boot** at the removable-media path, with no menu wait, as on a
+  UEFI EndeavourOS install; mkinitcpio rather than dracut. Boots to
+  `multi-user.target`.
+- **Kernel:** Arch's `linux` on amd64; on arm64, Arch Linux ARM's generic
+  `linux-aarch64`, kept with `IgnorePkg`. EndeavourOS ARM's own
+  `linux-eos-arm` (made for its supported boards) would replace it, and it
+  leaves out the legacy iptables tables Docker's `check-config.sh` requires.
+- **No desktop:** none of EndeavourOS's desktop, theme or welcome packages.
+- **VirtualBox:** on amd64 the Arch kernel has the guest modules and
+  `virtualbox-guest-utils-nox` adds VBoxService; on arm64 the box
+  Vagrantfile uses an rsync shared folder.
+- **No cloud-init** in the box.
+- **Containers**: `make test` runs Moby's `check-config.sh` and loads
+  Docker's kernel modules; Docker itself is not installed.
+
+Measured on Apple Silicon (arm64): libvirt (vagrant-qemu) boot 9.8 s,
+`vagrant up` 21 s, box 0.99 GB; VirtualBox boot 8.8 s, `vagrant up` 26 s,
+box 0.94 GB. Boot time is kernel, initrd and userspace: systemd-boot also
+reports the firmware's ~5 s, which GRUB-booted boxes never count. About 5 s
+of it is creating the per-VM pacman keyring on first boot.
+
+```bash
+cd endeavouros && make                  # build, then test (or from the root: make endeavouros-all)
+make endeavouros-publish
+```
+
 ## Layout
 
 ```
@@ -500,9 +559,11 @@ Makefile               forwards <distro>-<target> to the distro directory
 ubuntu-26.04.json      Ubuntu box catalog (committed, served by GitHub Pages)
 archlinux.json         Arch Linux box catalog (created by the first publish)
 gentoo.json            Gentoo box catalog (created by the first publish)
+endeavouros.json       EndeavourOS box catalog (created by the first publish)
 ubuntu/                Ubuntu 26.04 box
 archlinux/             Arch Linux box (same layout as ubuntu/)
 gentoo/                Gentoo box (same layout, libvirt only)
+endeavouros/           EndeavourOS box (same layout)
 scripts/               doctor-lib.sh and install-deps-lib.sh, shared by every
                        distro's scripts/doctor and scripts/install-deps
 third_party/moby/      Moby's check-config.sh, run by every test script
