@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Install what building and testing this distro's boxes needs on this
+# platform: QEMU and its UEFI firmware, an ISO tool, Vagrant and the plugin
+# make test uses, libvirt on Linux, VirtualBox where the distro builds that
+# box. packer, jq and gh come from mise.toml (mise install).
+#
+#   scripts/install-deps             (or: mise run deps, which runs mise install first)
+#   scripts/install-deps --dry-run   # print the commands instead
+#
+# What the distro needs is in requirements.sh; the installer is
+# ../../scripts/install-deps-lib.sh.
+here=$(cd "$(dirname "$0")" && pwd)
+. "$here/requirements.sh"
+. "$here/../../scripts/install-deps-lib.sh"
+cd "$here/.."
+install_deps_main "$@"
