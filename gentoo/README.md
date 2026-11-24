@@ -275,19 +275,108 @@ box is about 0.8 GB.
 ## VirtualBox (planned)
 
 There is no VirtualBox box yet, and `make` refuses `PROVIDERS=virtualbox`.
-It is planned soon. What is missing:
+That is a choice of this project, not a limit of Gentoo or VirtualBox. This
+section records what blocks it, how the Guest Additions get onto Gentoo, how
+another project (robox) builds its VirtualBox box, and the options we are
+weighing. Nothing under "Options" has been tried yet.
 
-- Gentoo's dist-kernel, on both architectures, is built without the
-  `vboxguest` and `vboxsf` modules, so there are no shared folders and no
+### What blocks it
+
+Checked in the box (kernel `6.18.64-p1`):
+
+- `CONFIG_VBOXGUEST` is not set and no `vbox*` module is on disk, so
+  `vboxguest` and `vboxsf` cannot load: no shared folders, clipboard, or
   guest services (unlike Arch Linux, whose kernel has them).
-- The image has no kernel build tree to compile the Guest Additions modules
-  against, and adding one means a source kernel or `emerge` of the matching
-  sources at build time, which is slow and has to be redone on every kernel
-  update.
+- There is no kernel build tree. `/lib/modules/6.18.64-p1/build` points at
+  `/usr/src/linux-6.18.64-p1`, which does not exist (a dangling symlink).
+  `gcc` and `make` are installed, but there is nothing to compile modules
+  against.
 
-The likely route is the Arch Linux one: convert the finished libvirt image
-to a VirtualBox OVF (the disk already boots with BIOS or UEFI) and add the
-guest modules from a package, once one that fits the dist-kernel is chosen.
+What is *not* blocked: booting. The disk would very likely start in
+VirtualBox without the Guest Additions, and SSH and port forwarding use plain
+NAT. Without them only the guest integration is missing. That is a guess; it
+has not been tried.
+
+### Getting the Guest Additions onto Gentoo
+
+Gentoo packages them, so there is no need to run the installer from the
+Guest Additions ISO. Two packages in the main tree, which `emerge` builds
+from VirtualBox's source tarball:
+
+| Package | What it is |
+|---|---|
+| `app-emulation/virtualbox-guest-additions` | the user-space tools and services, the `vboxguest` and `vboxsf` groups; depends on the modules package at the same version |
+| `app-emulation/virtualbox-guest-modules` | the `vboxguest` and `vboxsf` kernel modules, built out of tree (`linux-mod-r1`) against the installed kernel |
+
+```bash
+sudo emerge-webrsync                     # the box ships no ebuild repository
+sudo ACCEPT_KEYWORDS="~amd64" emerge app-emulation/virtualbox-guest-additions
+```
+
+Things to know:
+
+- Both packages are keyworded `~amd64 ~arm64 ~x86` (testing), so they must be
+  unmasked: `ACCEPT_KEYWORDS`, or `package.accept_keywords`.
+- The modules are built for one kernel, so they have to be rebuilt on every
+  kernel update, and they need that kernel's build tree. This box's kernel is
+  the source-built `sys-kernel/gentoo-kernel` and its tree is gone, so
+  restoring it comes first. This has not been tried.
+- The build needs `kbuild`, `yasm`, `iasl` and `bin86` at build time.
+- `emerge -pv` in the unmodified box lists upgrades of packages such as
+  OpenSSL and systemd among the dependencies. The box does not upgrade
+  packages at build time (see above), so installing there would pull some in.
+
+### How robox does it
+
+[robox](https://github.com/lavabit/robox) publishes `generic/gentoo` with a
+VirtualBox box, and builds it differently from hako:
+
+- **From scratch.** Packer boots Gentoo's minimal install ISO
+  (`virtualbox-iso`), and a script partitions the disk, unpacks a stage3
+  tarball and chroots in. It installs `sys-kernel/gentoo-kernel-bin` and GRUB,
+  then runs `emerge --update --deep --newuse @system @world`. It uses 8 CPUs,
+  8 GB of RAM and 720-minute provisioner timeouts.
+- **Guest Additions from Portage.** `scripts/gentoo/virtualbox.sh` runs
+  `emerge app-emulation/virtualbox-guest-additions` and enables its service,
+  after checking that the machine is VirtualBox. The same script list runs for
+  every provider; each one exits early on the wrong hypervisor.
+- **Stale.** The published `generic/gentoo` box (4.3.12) was last released
+  about 2.8 years ago, though the build scripts in the repository are newer.
+
+| | robox | hako |
+|---|---|---|
+| Source | stage3 install, compiled `@world` | Gentoo's weekly cloud-init image |
+| Kernel | `gentoo-kernel-bin` | the image's own kernel (`CONFIG_VBOXGUEST` not set) |
+| Guest Additions | `emerge virtualbox-guest-additions` | not possible as is: no module and no build tree |
+| Build time | hours | minutes |
+
+Not checked: whether `gentoo-kernel-bin` enables the VirtualBox guest options
+(robox relying on it suggests it works), and whether the guest packages build
+here once the build tree is restored.
+
+### Options
+
+Our approach is to build from Gentoo's cloud image, so that a box takes
+minutes and tracks Gentoo's weekly snapshot. Each option below keeps that and
+differs in what the VirtualBox variant does about the kernel. All would
+convert the finished disk to an OVF, as the Arch Linux box does (the disk
+already boots with BIOS or UEFI).
+
+1. **Swap in `gentoo-kernel-bin`** for the VirtualBox variant, then install
+   the Guest Additions as above. Cheapest way to get working shared folders.
+   Untested.
+2. **Rebuild the kernel with the guest options.** A config fragment enabling
+   the in-kernel `vboxguest`/`vboxsf` drivers, then rebuild the dist-kernel.
+   The result is a kernel that stays close to the image's, at the cost of a
+   compile in every build. Untested.
+3. **Ship without the Guest Additions** and document that shared folders do
+   not work. SSH and port forwarding still do. Cheapest, but the VirtualBox
+   box would behave differently from the other providers' boxes.
+4. **Build from scratch like robox.** The slowest, and it gives up what makes
+   this box quick and reproducible.
+
+Next step: try option 1 in a throwaway VM and see whether a `virtualbox-bios`
+fixture is worth adding (see [Testing](#testing)).
 
 ## Building
 
