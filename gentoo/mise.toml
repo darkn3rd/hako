@@ -30,6 +30,14 @@ run = "make build"
 description = "Boot and check each box with Vagrant (make test)"
 run = "make test"
 
+[tasks.fixtures]
+description = "Generate example Vagrantfiles per provider and boot mode (make fixtures)"
+run = "make fixtures"
+
+[tasks.fixtures-test]
+description = "Boot and check each example Vagrantfile this machine can run (make fixtures-test)"
+run = "make fixtures-test"
+
 [tasks.all]
 description = "Build, then test (make all)"
 run = "make all"

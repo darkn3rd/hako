@@ -26,3 +26,6 @@ output-*/
 *.log
 build-*.out
 .vagrant/
+
+# Generated example Vagrantfiles (gentoo/scripts/fixtures)
+gentoo/fixtures/

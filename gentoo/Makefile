@@ -4,6 +4,8 @@
 #   make                            # build, then test (from gentoo/)
 #   make build                      # libvirt box into boxes/
 #   make test                       # vagrant up the box from a local catalog
+#   make fixtures                   # example Vagrantfiles per provider and boot mode
+#   make fixtures-test              # boot each one that this machine can run
 #   make publish                    # GitHub release + update ../gentoo.json
 #
 # Gentoo is a rolling release, so the box has no OS version: the box version
@@ -92,7 +94,8 @@ PACKER_VARS := -var box_version=$(VERSION) -var arch=$(ARCH) \
                -var accelerator=$(ACCEL) -var qemu_share_dir=$(QEMU_SHARE) \
                $(if $(EFI_CODE),-var efi_code=$(EFI_CODE)) $(if $(EFI_VARS),-var efi_vars=$(EFI_VARS))
 
-.PHONY: all preflight init build build-libvirt test local-catalog catalog check-size publish clean
+.PHONY: all preflight init build build-libvirt test local-catalog catalog check-size publish clean \
+        fixtures fixtures-test fixtures-list fixtures-env
 
 all: build test
 
@@ -134,6 +137,31 @@ test: local-catalog
 	  LIBVIRT_VAGRANT=$(LIBVIRT_VAGRANT) scripts/test-box.sh $(p) \
 	  file://$(CURDIR)/$(LOCAL_CATALOG) $(VERSION) &&) true
 
+# Integration tests, separate from make test (which checks the box itself):
+# generated example Vagrantfiles in fixtures/<provider>-<mode>/, one per way
+# a user runs the box. Name some to act on those only, e.g.
+#   make fixtures-test FIXTURES="qemu-bios qemu-uefi"
+# See scripts/fixtures.
+FIXTURES ?=
+
+# Generate the Vagrantfiles this machine can run, and run nothing.
+fixtures: local-catalog
+	scripts/fixtures gen $(FIXTURES)
+
+# Generate, boot, check, reload, check and destroy each of them.
+fixtures-test: local-catalog
+	scripts/fixtures test $(FIXTURES)
+
+fixtures-list:
+	@scripts/fixtures list
+
+# The settings scripts/fixtures reads (it must not recompute them).
+fixtures-env:
+	@printf "%s='%s'\n" \
+	  ARCH "$(ARCH)" VERSION "$(VERSION)" BOX "$(BOX)" HOST_OS "$(HOST_OS)" \
+	  QEMU_BINARY "$(QEMU_BINARY)" QEMU_SHARE "$(QEMU_SHARE)" \
+	  EFI_CODE "$(EFI_CODE)" EFI_VARS "$(EFI_VARS)" LOCAL_CATALOG "$(LOCAL_CATALOG)"
+
 # Update the committed catalog with the release download URLs + checksums.
 catalog:
 	@$(foreach p,$(PROVIDERS),scripts/catalog.sh $(CATALOG) $(BOX) $(VERSION) $(p) $(ARCH) \
@@ -164,5 +192,5 @@ publish: check-size
 	@echo "Now commit and push $(CATALOG)."
 
 clean:
-	rm -rf output-libvirt boxes
+	rm -rf output-libvirt boxes fixtures
 	rm -f packer-*.log build-*.out

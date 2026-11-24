@@ -533,6 +533,8 @@ Inside each distro directory:
   scripts/             provisioning, catalog, OVF, release notes, test helpers;
                        doctor, install-deps and requirements.sh (mise tasks)
   vagrantfiles/box.rb  Vagrantfile embedded in the boxes
+  fixtures/            Gentoo only: generated example Vagrantfiles per provider
+                       and boot mode (scripts/fixtures; not committed)
 ```
 
 ## Roadmap
@@ -642,9 +644,54 @@ The default machine type for x86_64 is already `q35`, which UEFI needs; if
 you set `qe.machine` yourself, keep the accelerator (`"q35,accel=hvf"` on a
 Mac, `"q35,accel=kvm"` on Linux).
 
-`make test` boots the box with BIOS (vagrant-libvirt's default). UEFI boot of
-the built image was checked with QEMU and OVMF directly; the two Vagrantfiles
-above have not been run by the test.
+`make test` boots the box with BIOS (vagrant-libvirt's default). The
+Vagrantfiles above are generated, and booted in each mode, by
+`make fixtures-test` (next section).
+
+## Testing example Vagrantfiles (Gentoo)
+
+`make test` checks the box itself. `make fixtures-test` is a separate set of
+integration tests of how a user runs it: it writes an example Vagrantfile for
+each provider and boot mode, boots each one this machine can run, and checks
+that the guest came up in the mode the name claims (`/sys/firmware/efi` is
+there for UEFI and absent for BIOS), that sudo works and the system is
+healthy, and that it comes up again after `vagrant reload`. The Vagrantfiles
+are test fixtures: generated into `gentoo/fixtures/` and not committed.
+
+| Fixture        | Provider        | Boot mode | Needs                                  |
+|----------------|-----------------|-----------|----------------------------------------|
+| `qemu-bios`    | vagrant-qemu    | BIOS      | QEMU, the `vagrant-qemu` plugin        |
+| `qemu-uefi`    | vagrant-qemu    | UEFI      | the above, plus edk2 firmware          |
+| `libvirt-bios` | vagrant-libvirt | BIOS      | Linux, libvirt, `vagrant-libvirt`      |
+| `libvirt-uefi` | vagrant-libvirt | UEFI      | the above, plus OVMF firmware          |
+
+```bash
+cd gentoo
+make fixtures-list          # which fixtures this machine can run, and why not
+make fixtures               # write fixtures/<provider>-<mode>/Vagrantfile, run nothing
+make fixtures-test          # boot, check, reload, check and destroy each
+make fixtures-test FIXTURES="qemu-uefi"      # only some
+```
+
+- A fixture this machine can't run is skipped with the reason (no plugin, no
+  Linux, no firmware), not failed. The run fails if any fixture fails, or if
+  nothing could run.
+- Each fixture has its own directory, because Vagrant keeps its state beside
+  the Vagrantfile. To bring one up yourself:
+  `cd fixtures/qemu-uefi && vagrant up --provider qemu`. Naming a fixture
+  (`scripts/fixtures gen libvirt-uefi`) generates it even if this machine
+  can't run it.
+- The fixtures use the box in `boxes/` (through the local catalog that
+  `make test` also builds), so build first.
+- UEFI firmware comes from the same place as the build: Homebrew's QEMU on a
+  Mac, the distro's OVMF on Linux; set `EFI_CODE=` and `EFI_VARS=` to
+  override. The arm64 box is UEFI only, so it has just `qemu-uefi`, where
+  vagrant-qemu attaches the firmware itself.
+- There are no VirtualBox fixtures: the Gentoo box is libvirt only.
+
+Status: on an Intel Mac, `qemu-bios` and `qemu-uefi` pass. The two libvirt
+fixtures need a Linux host with vagrant-libvirt and have not been run yet; the
+arm64 fixture has not been run.
 
 ## License
 
