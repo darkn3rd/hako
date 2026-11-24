@@ -11,6 +11,8 @@
 # from the image's .sha256 file (both PGP clear-signed; only the payload
 # lines are used).
 set -euo pipefail
+# gawk 5.4.0 with no locale set matches nothing (see test-box.sh).
+export LC_ALL=C
 
 arch=$1
 case $arch in arm64|amd64) ;; *) echo "unsupported arch $arch" >&2; exit 2 ;; esac

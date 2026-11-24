@@ -483,6 +483,13 @@ differences from the Ubuntu box:
   and with UEFI when the provider is configured for it (see
   [Booting the Gentoo box with UEFI](#booting-the-gentoo-box-with-uefi)).
   The arm64 box is UEFI only, as every arm64 VM is.
+- **Named CPU model on an Intel Mac (amd64).** Under HVF, `-cpu host` passes
+  the CPU's AVX-512 feature bits to the guest without enabling the AVX-512
+  register state, so Gentoo's kernel panics at boot with an invalid opcode
+  (in `chacha_8block_xor_avx512vl`). The build uses `Skylake-Client` there
+  (`packer/variables.pkr.hcl`), and the box's Vagrantfile sets the same model
+  for vagrant-qemu on an Intel Mac (`vagrantfiles/box.rb`). Linux with KVM
+  keeps `host`.
 - **libvirt only.** Neither architecture's dist-kernel has the
   `vboxguest`/`vboxsf` modules, and the image has no kernel build tree to
   compile the Guest Additions against, so there is no VirtualBox box yet.

@@ -15,7 +15,7 @@ source "qemu" "libvirt" {
   qemu_binary       = local.cfg.qemu_binary
   machine_type      = local.cfg.machine_type
   accelerator       = var.accelerator
-  cpu_model         = "host"
+  cpu_model         = local.cpu_model
   cpus              = var.cpus
   memory            = var.memory
   efi_boot          = true

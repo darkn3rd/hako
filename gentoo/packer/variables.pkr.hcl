@@ -77,6 +77,13 @@ locals {
   vm_name  = "hako-gentoo-${var.arch}"
   box_dir  = "${path.root}/../boxes"
 
+  # HVF on an Intel Mac passes the host's AVX-512 CPUID bits through but does
+  # not enable the AVX-512 XSAVE state, so Gentoo's 6.18 kernel executes an
+  # AVX-512 (chacha) instruction at boot and panics with "invalid opcode".
+  # A named model without AVX-512 avoids it. Keep the same model in
+  # vagrantfiles/box.rb, which vagrant-qemu would otherwise default to "host".
+  cpu_model = var.arch == "amd64" && var.accelerator == "hvf" ? "Skylake-Client" : "host"
+
   efi_code_path = var.efi_code != "" ? var.efi_code : "${var.qemu_share_dir}/${local.cfg.efi_code}"
   efi_vars_path = var.efi_vars != "" ? var.efi_vars : "${var.qemu_share_dir}/${local.cfg.efi_vars}"
 
