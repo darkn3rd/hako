@@ -1,0 +1,8 @@
+# Installed by hako. DHCP on the first NIC, whatever the hypervisor: Alpine
+# names NICs eth0, eth1, ... in probe order. Vagrant adds stanzas below for
+# any private_network it configures.
+auto lo
+iface lo inet loopback
+
+auto eth0
+iface eth0 inet dhcp
