@@ -475,6 +475,14 @@ differences from the Ubuntu box:
   `notfound=disabled`; a VM with a NoCloud seed still runs cloud-init.
 - **sshd** is enabled as a unit (the image only starts it from cloud-init),
   and the GRUB menu timeout is 0.
+- **Boots with BIOS or UEFI (amd64).** Gentoo's image is UEFI-only, but
+  vagrant-libvirt and vagrant-qemu start x86_64 VMs with BIOS (SeaBIOS) by
+  default. The build adds a 1 MiB GRUB BIOS boot partition in the gap before
+  the ESP and installs GRUB for BIOS next to the image's UEFI GRUB; both read
+  the same `/boot/grub/grub.cfg`. The box boots with no provider settings,
+  and with UEFI when the provider is configured for it (see
+  [Booting the Gentoo box with UEFI](#booting-the-gentoo-box-with-uefi)).
+  The arm64 box is UEFI only, as every arm64 VM is.
 - **libvirt only.** Neither architecture's dist-kernel has the
   `vboxguest`/`vboxsf` modules, and the image has no kernel build tree to
   compile the Guest Additions against, so there is no VirtualBox box yet.
@@ -482,7 +490,8 @@ differences from the Ubuntu box:
   installs `app-containers/docker` from the binhost (nothing is compiled).
 
 Measured on Apple Silicon (arm64, vagrant-qemu): boot ~8 s, `vagrant up`
-~20 s, box 0.8 GB.
+~20 s, box 0.8 GB. On an x86 Linux host (amd64, vagrant-libvirt, BIOS):
+boot ~8 s, `vagrant up` ~36 s.
 
 ```bash
 cd gentoo && make                       # build, then test (or from the root: make gentoo-all)
@@ -552,6 +561,83 @@ Releases, with its 2 GiB-per-asset limit, works as the download host.
    release assets, so `config.vm.box = "hako/ubuntu-26.04"` works without
    `box_url`.
 5. **Later providers:** `parallels`, `vmware_desktop`, `utm`.
+
+## Booting the Gentoo box with UEFI
+
+The amd64 `hako/gentoo` box is hybrid: its disk has both an EFI system
+partition (with the removable-media loader `EFI/BOOT/BOOTX64.EFI`, so it boots
+from empty firmware variables) and a GRUB BIOS boot partition. By default
+vagrant-libvirt and vagrant-qemu boot it with BIOS, which needs no settings.
+To boot it with UEFI instead:
+
+**vagrant-libvirt** (Linux):
+
+```ruby
+Vagrant.configure("2") do |config|
+  config.vm.box = "hako/gentoo"
+
+  config.vm.provider :libvirt do |libvirt|
+    libvirt.machine_type = "q35"
+    libvirt.loader = "/usr/share/OVMF/OVMF_CODE_4M.fd"
+    libvirt.nvram  = "/var/lib/libvirt/qemu/nvram/hako-gentoo_VARS.fd"
+  end
+end
+```
+
+- `loader` is the read-only firmware code (Debian/Ubuntu path; Arch:
+  `/usr/share/edk2/x64/OVMF_CODE.4m.fd`, Fedora:
+  `/usr/share/edk2/ovmf/OVMF_CODE.fd`).
+- `nvram` is this VM's own writable copy of the UEFI variables, not the
+  template in `/usr/share/OVMF`: pointing it at the template either fails
+  (QEMU can't write it) or makes every VM share one variable store. Use one
+  path per VM. When the file doesn't exist, libvirt creates it from the
+  template that matches `loader` (from the firmware descriptors in
+  `/usr/share/qemu/firmware`). vagrant-libvirt keeps the file on
+  `vagrant destroy`.
+- The CODE and VARS files must come from the same set (both `_4M`, or both
+  without).
+
+**vagrant-qemu** (Intel Mac or Linux): the plugin attaches UEFI firmware only
+for arm64 guests, and has no firmware setting for x86_64, so it boots them
+with QEMU's SeaBIOS. Its `extra_qemu_args` (appended after the plugin's own
+arguments) can attach the firmware instead; give the VM its own copy of the
+variables file:
+
+```ruby
+require "fileutils"
+
+# Intel Mac (Homebrew QEMU):
+code = "/usr/local/share/qemu/edk2-x86_64-code.fd"
+vars = "/usr/local/share/qemu/edk2-i386-vars.fd"
+# Linux (Debian/Ubuntu):
+# code = "/usr/share/OVMF/OVMF_CODE_4M.fd"
+# vars = "/usr/share/OVMF/OVMF_VARS_4M.fd"
+
+vm_vars = File.join(__dir__, ".vagrant", "uefi-vars.fd")
+unless File.exist?(vm_vars)
+  FileUtils.mkdir_p(File.dirname(vm_vars))
+  FileUtils.cp(vars, vm_vars)
+end
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "hako/gentoo"
+
+  config.vm.provider "qemu" do |qe|
+    qe.extra_qemu_args = [
+      "-drive", "if=pflash,format=raw,unit=0,readonly=on,file=#{code}",
+      "-drive", "if=pflash,format=raw,unit=1,file=#{vm_vars}",
+    ]
+  end
+end
+```
+
+The default machine type for x86_64 is already `q35`, which UEFI needs; if
+you set `qe.machine` yourself, keep the accelerator (`"q35,accel=hvf"` on a
+Mac, `"q35,accel=kvm"` on Linux).
+
+`make test` boots the box with BIOS (vagrant-libvirt's default). UEFI boot of
+the built image was checked with QEMU and OVMF directly; the two Vagrantfiles
+above have not been run by the test.
 
 ## License
 

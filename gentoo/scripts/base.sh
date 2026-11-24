@@ -24,12 +24,6 @@ if ! grep -q getbinpkg /etc/portage/make.conf; then
     >> /etc/portage/make.conf
 fi
 
-# No GRUB menu wait (the default is 5 s): there is one kernel and no one at
-# the console. The kernel lives on the ESP, mounted at /boot.
-sed -i '/^#\?GRUB_TIMEOUT=/d; /^#\?GRUB_TIMEOUT_STYLE=/d' /etc/default/grub
-printf 'GRUB_TIMEOUT=0\nGRUB_TIMEOUT_STYLE=hidden\n' >> /etc/default/grub
-grub-mkconfig -o /boot/grub/grub.cfg
-
 # sshd is not enabled in the image (cloud-init starts it for the build).
 systemctl enable sshd.service
 
@@ -62,6 +56,32 @@ emerge --deselect sys-kernel/linux-firmware
 emerge --depclean --quiet sys-kernel/linux-firmware
 ! portageq has_version / sys-kernel/linux-firmware
 du -sh /usr/lib/firmware 2>/dev/null || true
+
+# BIOS boot on amd64, next to UEFI. The image is UEFI-only, but
+# vagrant-libvirt starts VMs with BIOS (SeaBIOS) unless the user configures
+# a UEFI loader, and then nothing boots. The 1 MiB gap before the ESP holds
+# a GRUB BIOS boot partition; the image's GRUB already has the i386-pc
+# platform. Both GRUBs read the same /boot/grub/grub.cfg.
+if [[ $(uname -m) == x86_64 ]] && ! sgdisk -p /dev/vda | awk '$6 == "EF02"' | grep -q .; then
+  sgdisk -a 1 -n 0:34:2047 -t 0:EF02 -c 0:biosboot /dev/vda
+  grub-install --target=i386-pc --boot-directory=/boot /dev/vda
+fi
+
+# No GRUB menu wait (the default is 5 s): there is one kernel and no one at
+# the console. The kernel lives on the ESP, mounted at /boot.
+#
+# grub.cfg is written only now, after linux-firmware is gone: that package
+# installs /boot/amd-uc.img (AMD microcode), grub-mkconfig adds it to the
+# initrd line, and when the file is missing GRUB drops the whole initrd, so
+# the kernel boots without its initramfs and panics (no root filesystem).
+sed -i '/^#\?GRUB_TIMEOUT=/d; /^#\?GRUB_TIMEOUT_STYLE=/d' /etc/default/grub
+printf 'GRUB_TIMEOUT=0\nGRUB_TIMEOUT_STYLE=hidden\n' >> /etc/default/grub
+grub-mkconfig -o /boot/grub/grub.cfg
+# Every kernel and initrd grub.cfg names must exist on /boot.
+for f in $(awk '$1 == "linux" { print $2 } $1 == "initrd" { for (i = 2; i <= NF; i++) print $i }' \
+             /boot/grub/grub.cfg | sort -u); do
+  test -f "/boot$f" || { echo "grub.cfg names /boot$f, which does not exist" >&2; exit 1; }
+done
 
 # Per-VM SSH host keys, generated on first boot.
 install -m 0644 /tmp/hako/hako-ssh-hostkeys.service /etc/systemd/system/hako-ssh-hostkeys.service
