@@ -10,19 +10,20 @@ this repository's GitHub Releases with a Vagrant box catalog.
 | `hako/ubuntu-26.04` | amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` |
 | `hako/archlinux`    | amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` (new, not yet published) |
 | `hako/gentoo`       | arm64, amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt) (new, not yet published; amd64 not yet built) |
+| `hako/nixos-26.05`  | arm64, amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` (new, not yet published; amd64 not yet built) |
 
 Both architectures share one box name; Vagrant picks the one matching the
 host. Each is built natively on a host of its own architecture (never
 emulated), so arm64 boxes come from an Apple Silicon Mac and amd64 boxes from
 an Intel one.
 
-Catalogs: [`ubuntu-26.04.json`](ubuntu-26.04.json), `archlinux.json` and
-`gentoo.json` (each written by that distro's first `make publish`)
+Catalogs: [`ubuntu-26.04.json`](ubuntu-26.04.json), `archlinux.json`,
+`gentoo.json` and `nixos-26.05.json` (each written by that distro's first `make publish`)
 
-Each distribution builds from its own directory, [`ubuntu/`](ubuntu) and
-[`archlinux/`](archlinux) and [`gentoo/`](gentoo). The rest of this README
-describes the Ubuntu box; see [Arch Linux](#arch-linux) and [Gentoo](#gentoo)
-for how those differ.
+Each distribution builds from its own directory: [`ubuntu/`](ubuntu),
+[`archlinux/`](archlinux), [`gentoo/`](gentoo) and [`nixos/`](nixos). The rest
+of this README describes the Ubuntu box; see [Arch Linux](#arch-linux),
+[Gentoo](#gentoo) and [NixOS](#nixos) for how those differ.
 
 ## Why
 
@@ -493,6 +494,58 @@ On a Linux host the build uses KVM and the distro's firmware (OVMF for
 amd64, AAVMF/edk2-aarch64 for arm64; override with `EFI_CODE=... EFI_VARS=...`)
 and `make test` uses vagrant-libvirt, as for Arch Linux.
 
+## NixOS
+
+`nixos/` builds `hako/nixos-26.05`, installed from the `nixos-26.05`
+channel. NixOS publishes no cloud image, so the build has two steps:
+
+1. **Install** (`make build-installer`): a helper VM booted from Debian's
+   generic cloud image, with a second empty disk, installs NixOS onto that
+   disk with the official tools (Debian's Nix package, the channel,
+   `nixos-install-tools`, `nixos-generate-config`, `nixos-install`), as the
+   NixOS manual describes for installing from another Linux distribution.
+2. **Box** (`make build-libvirt`): Packer boots that disk on its own, checks
+   it and cleans it up; it becomes the libvirt box. The VirtualBox box is
+   made from it, as for the other distros.
+
+The differences from the Ubuntu box:
+
+- **arm64 and amd64**, one box name, each built natively, with libvirt and
+  VirtualBox boxes.
+- **Configured declaratively:** `/etc/nixos/configuration.nix` (from
+  [`nixos/nixos/configuration.nix`](nixos/nixos/configuration.nix)) holds the
+  vagrant user, sshd, systemd-networkd with DHCP on every NIC, and
+  systemd-boot at the removable-media path with no menu wait. Change it in a
+  VM and run `sudo nixos-rebuild switch`. It imports `vagrant.nix` when
+  Vagrant writes one (host name, private networks).
+- **The channel is in the box** (`nix-channel --list`), so `nixos-rebuild`
+  and Vagrant's NixOS guest support work. One system generation ships.
+- **No `/etc/bash_logout` title reset:** NixOS's prints a terminal-title
+  escape when a login shell exits, which breaks Vagrant's parsing of its own
+  commands' output on `vagrant up`.
+- **VirtualBox:** on amd64 the box enables
+  `virtualisation.virtualbox.guest` (in `/etc/nixos/hako-provider.nix`);
+  Linux has no VirtualBox guest modules on arm64, so there the box
+  Vagrantfile uses an rsync shared folder.
+- **Kernel:** the 6.12 LTS kernel (`linuxPackages_6_12`, from NixOS's
+  binary cache). NixOS's default and latest kernels leave out the legacy
+  iptables tables Docker's `check-config.sh` requires.
+- **No cloud-init.** The box needs no seed; configuration belongs in
+  `configuration.nix`.
+- **Containers**: `make test` runs Moby's `check-config.sh` and loads
+  Docker's kernel modules; Docker itself is not installed.
+
+Measured on Apple Silicon (arm64): libvirt (vagrant-qemu) boot 5.5 s,
+`vagrant up` 20 s, box 0.70 GB; VirtualBox boot 4.5 s,
+`vagrant up` 25 s, box 0.67 GB. Boot time is kernel, initrd and
+userspace: systemd-boot also reports the firmware's time, which GRUB-booted
+boxes never count.
+
+```bash
+cd nixos && make                        # build, then test (or from the root: make nixos-all)
+make nixos-publish
+```
+
 ## Layout
 
 ```
@@ -500,9 +553,12 @@ Makefile               forwards <distro>-<target> to the distro directory
 ubuntu-26.04.json      Ubuntu box catalog (committed, served by GitHub Pages)
 archlinux.json         Arch Linux box catalog (created by the first publish)
 gentoo.json            Gentoo box catalog (created by the first publish)
+nixos-26.05.json       NixOS box catalog (created by the first publish)
 ubuntu/                Ubuntu 26.04 box
 archlinux/             Arch Linux box (same layout as ubuntu/)
 gentoo/                Gentoo box (same layout, libvirt only)
+nixos/                 NixOS 26.05 box (same layout, plus nixos/ with the
+                       box's configuration.nix)
 scripts/               doctor-lib.sh and install-deps-lib.sh, shared by every
                        distro's scripts/doctor and scripts/install-deps
 third_party/moby/      Moby's check-config.sh, run by every test script
