@@ -10,19 +10,20 @@ this repository's GitHub Releases with a Vagrant box catalog.
 | `hako/ubuntu-26.04` | amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` |
 | `hako/archlinux`    | amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` (new, not yet published) |
 | `hako/gentoo`       | arm64, amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt) (new, not yet published; amd64 not yet built) |
+| `hako/freebsd-15.1` | arm64, amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` (new, not yet published; amd64 not yet built) |
 
 Both architectures share one box name; Vagrant picks the one matching the
 host. Each is built natively on a host of its own architecture (never
 emulated), so arm64 boxes come from an Apple Silicon Mac and amd64 boxes from
 an Intel one.
 
-Catalogs: [`ubuntu-26.04.json`](ubuntu-26.04.json), `archlinux.json` and
-`gentoo.json` (each written by that distro's first `make publish`)
+Catalogs: [`ubuntu-26.04.json`](ubuntu-26.04.json), `archlinux.json`,
+`gentoo.json` and `freebsd-15.1.json` (each written by that distro's first `make publish`)
 
-Each distribution builds from its own directory, [`ubuntu/`](ubuntu) and
-[`archlinux/`](archlinux) and [`gentoo/`](gentoo). The rest of this README
-describes the Ubuntu box; see [Arch Linux](#arch-linux) and [Gentoo](#gentoo)
-for how those differ.
+Each distribution builds from its own directory: [`ubuntu/`](ubuntu),
+[`archlinux/`](archlinux), [`gentoo/`](gentoo) and [`freebsd/`](freebsd). The rest
+of this README describes the Ubuntu box; see [Arch Linux](#arch-linux),
+[Gentoo](#gentoo) and [FreeBSD](#freebsd) for how those differ.
 
 ## Why
 
@@ -493,6 +494,44 @@ On a Linux host the build uses KVM and the distro's firmware (OVMF for
 amd64, AAVMF/edk2-aarch64 for arm64; override with `EFI_CODE=... EFI_VARS=...`)
 and `make test` uses vagrant-libvirt, as for Arch Linux.
 
+## FreeBSD
+
+`freebsd/` builds `hako/freebsd-15.1` from FreeBSD's official
+BASIC-CLOUDINIT VM image (UFS), whose `nuageinit` reads the NoCloud seed.
+The differences from the Ubuntu box:
+
+- **arm64 and amd64**, one box name, each built natively, with libvirt and
+  VirtualBox boxes.
+- **The image is xz-compressed**, which Packer cannot read: `make build`
+  downloads it, checks its SHA-256 from the release's `CHECKSUM.SHA256`,
+  and unpacks it into `~/.cache/hako/freebsd` (`IMAGE_CACHE`), reusing it
+  while it matches. `xz` is needed on the host (`mise run deps` installs it).
+- **Updated at build time:** the base system with `pkg` (FreeBSD 15 installs
+  it as packages) or `freebsd-update`, and packages with `pkg upgrade`; the
+  VM then reboots into the updated system.
+- **sudo** comes from packages (Vagrant needs it), and **sh** is the login
+  shell: the box Vagrantfile sets `config.ssh.shell = "sh"`.
+- **Shared folders use rsync** (set in the box Vagrantfile): Vagrant cannot
+  mount VirtualBox shared folders in a FreeBSD guest. rsync is in the box.
+- **Networking:** DHCP on every NIC (`ifconfig_DEFAULT`), in the background.
+  The VirtualBox VM has an Intel 82540EM NIC (`em0`): FreeBSD attaches no
+  driver to VirtualBox's virtio NIC on Arm.
+- **VirtualBox guest support:** VBoxService from
+  `virtualbox-ose-additions-nox11` on amd64 (it is not built for arm64).
+- **Per-VM identity:** SSH host keys and the host id are made on each VM's
+  first boot. No boot menu wait (`autoboot_delay=0`).
+- **Boot time** is measured from `kern.boottime` to sshd's start. FreeBSD
+  is not Linux, so there is no container check.
+
+Measured on Apple Silicon (arm64): libvirt (vagrant-qemu) boot to sshd
+4.0 s, `vagrant up` 20 s, box 0.90 GB; VirtualBox boot to sshd
+6.0 s, `vagrant up` 26 s, box 0.87 GB.
+
+```bash
+cd freebsd && make                      # build, then test (or from the root: make freebsd-all)
+make freebsd-publish
+```
+
 ## Layout
 
 ```
@@ -500,9 +539,11 @@ Makefile               forwards <distro>-<target> to the distro directory
 ubuntu-26.04.json      Ubuntu box catalog (committed, served by GitHub Pages)
 archlinux.json         Arch Linux box catalog (created by the first publish)
 gentoo.json            Gentoo box catalog (created by the first publish)
+freebsd-15.1.json      FreeBSD box catalog (created by the first publish)
 ubuntu/                Ubuntu 26.04 box
 archlinux/             Arch Linux box (same layout as ubuntu/)
 gentoo/                Gentoo box (same layout, libvirt only)
+freebsd/               FreeBSD 15.1 box (same layout)
 scripts/               doctor-lib.sh and install-deps-lib.sh, shared by every
                        distro's scripts/doctor and scripts/install-deps
 third_party/moby/      Moby's check-config.sh, run by every test script
