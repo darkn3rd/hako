@@ -10,19 +10,20 @@ this repository's GitHub Releases with a Vagrant box catalog.
 | `hako/ubuntu-26.04` | amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` |
 | `hako/archlinux`    | amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` (new, not yet published) |
 | `hako/gentoo`       | arm64, amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt) (new, not yet published; amd64 not yet built) |
+| `hako/debian-13`    | arm64, amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` (new, not yet published; amd64 not yet built) |
 
 Both architectures share one box name; Vagrant picks the one matching the
 host. Each is built natively on a host of its own architecture (never
 emulated), so arm64 boxes come from an Apple Silicon Mac and amd64 boxes from
 an Intel one.
 
-Catalogs: [`ubuntu-26.04.json`](ubuntu-26.04.json), `archlinux.json` and
-`gentoo.json` (each written by that distro's first `make publish`)
+Catalogs: [`ubuntu-26.04.json`](ubuntu-26.04.json), `archlinux.json`,
+`gentoo.json` and `debian-13.json` (each written by that distro's first `make publish`)
 
-Each distribution builds from its own directory, [`ubuntu/`](ubuntu) and
-[`archlinux/`](archlinux) and [`gentoo/`](gentoo). The rest of this README
-describes the Ubuntu box; see [Arch Linux](#arch-linux) and [Gentoo](#gentoo)
-for how those differ.
+Each distribution builds from its own directory: [`ubuntu/`](ubuntu),
+[`archlinux/`](archlinux), [`gentoo/`](gentoo) and [`debian/`](debian). The rest
+of this README describes the Ubuntu box; see [Arch Linux](#arch-linux),
+[Gentoo](#gentoo) and [Debian](#debian) for how those differ.
 
 ## Why
 
@@ -493,6 +494,43 @@ On a Linux host the build uses KVM and the distro's firmware (OVMF for
 amd64, AAVMF/edk2-aarch64 for arm64; override with `EFI_CODE=... EFI_VARS=...`)
 and `make test` uses vagrant-libvirt, as for Arch Linux.
 
+## Debian
+
+`debian/` builds `hako/debian-13` (trixie) from Debian's official "generic"
+cloud image (`debian-13-generic-<arch>-<date>-<n>.qcow2`, from the dated
+build directories on cloud.debian.org). The differences from the Ubuntu box:
+
+- **arm64 and amd64**, one box name, each built natively, with libvirt and
+  VirtualBox boxes. `make build` looks up the newest dated image and its
+  SHA-512 (`scripts/cloud-image.sh`); the box records the image it came from
+  in `/etc/hako-release`.
+- **The "generic" image**, not "genericcloud": it has Debian's full kernel,
+  with the AHCI and VirtualBox drivers the VirtualBox box needs.
+- **Packages are upgraded** at build time (`apt-get dist-upgrade`); the VM
+  then reboots, and only the running kernel is kept (the `linux-image-<arch>`
+  metapackage stays, so kernel updates still arrive).
+- **Networking** is one systemd-networkd file matching every ethernet NIC
+  by name, as in the Arch and Gentoo boxes. The image's netplan file only
+  described the build NIC, so it is removed; netplan itself stays for
+  cloud-init to use when a VM has a seed.
+- **SSH host keys** are made on each VM's first boot by a small unit (the
+  image leaves that to cloud-init, which stays off without a seed).
+- **VirtualBox**: the Guest Additions are built from the ISO against the
+  kernel headers (dkms rebuilds them for new kernels).
+- **No background apt runs** (`apt-daily*` timers off), and the GRUB menu
+  timeout is 0.
+- **Containers**: `make test` runs Moby's `check-config.sh` and loads
+  Docker's kernel modules; Docker itself is not installed.
+
+Measured on Apple Silicon (arm64): libvirt (vagrant-qemu) boot 2.3 s,
+`vagrant up` 19 s, box 0.34 GB; VirtualBox boot 5.1 s, `vagrant up` 25 s,
+box 0.47 GB.
+
+```bash
+cd debian && make                       # build, then test (or from the root: make debian-all)
+make debian-publish
+```
+
 ## Layout
 
 ```
@@ -500,9 +538,11 @@ Makefile               forwards <distro>-<target> to the distro directory
 ubuntu-26.04.json      Ubuntu box catalog (committed, served by GitHub Pages)
 archlinux.json         Arch Linux box catalog (created by the first publish)
 gentoo.json            Gentoo box catalog (created by the first publish)
+debian-13.json         Debian box catalog (created by the first publish)
 ubuntu/                Ubuntu 26.04 box
 archlinux/             Arch Linux box (same layout as ubuntu/)
 gentoo/                Gentoo box (same layout, libvirt only)
+debian/                Debian 13 box (same layout)
 scripts/               doctor-lib.sh and install-deps-lib.sh, shared by every
                        distro's scripts/doctor and scripts/install-deps
 third_party/moby/      Moby's check-config.sh, run by every test script
