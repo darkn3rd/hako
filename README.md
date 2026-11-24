@@ -10,19 +10,20 @@ this repository's GitHub Releases with a Vagrant box catalog.
 | `hako/ubuntu-26.04` | amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` |
 | `hako/archlinux`    | amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` (new, not yet published) |
 | `hako/gentoo`       | arm64, amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt) (new, not yet published; amd64 not yet built) |
+| `hako/fedora-45`    | arm64, amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` (new, not yet published; amd64 not yet built) |
 
 Both architectures share one box name; Vagrant picks the one matching the
 host. Each is built natively on a host of its own architecture (never
 emulated), so arm64 boxes come from an Apple Silicon Mac and amd64 boxes from
 an Intel one.
 
-Catalogs: [`ubuntu-26.04.json`](ubuntu-26.04.json), `archlinux.json` and
-`gentoo.json` (each written by that distro's first `make publish`)
+Catalogs: [`ubuntu-26.04.json`](ubuntu-26.04.json), `archlinux.json`,
+`gentoo.json` and `fedora-45.json` (each written by that distro's first `make publish`)
 
-Each distribution builds from its own directory, [`ubuntu/`](ubuntu) and
-[`archlinux/`](archlinux) and [`gentoo/`](gentoo). The rest of this README
-describes the Ubuntu box; see [Arch Linux](#arch-linux) and [Gentoo](#gentoo)
-for how those differ.
+Each distribution builds from its own directory: [`ubuntu/`](ubuntu),
+[`archlinux/`](archlinux), [`gentoo/`](gentoo) and [`fedora/`](fedora). The rest
+of this README describes the Ubuntu box; see [Arch Linux](#arch-linux),
+[Gentoo](#gentoo) and [Fedora](#fedora) for how those differ.
 
 ## Why
 
@@ -493,6 +494,42 @@ On a Linux host the build uses KVM and the distro's firmware (OVMF for
 amd64, AAVMF/edk2-aarch64 for arm64; override with `EFI_CODE=... EFI_VARS=...`)
 and `make test` uses vagrant-libvirt, as for Arch Linux.
 
+## Fedora
+
+`fedora/` builds `hako/fedora-45` from Fedora's official Cloud Base Generic
+image (`Fedora-Cloud-Base-Generic-45-<compose>.<arch>.qcow2`: Btrfs root,
+NetworkManager, SELinux enforcing). The differences from the Ubuntu box:
+
+- **arm64 and amd64**, one box name, each built natively, with libvirt and
+  VirtualBox boxes. `make build` reads the image name and its SHA-256 from
+  the release's directory listing and CHECKSUM file
+  (`scripts/cloud-image.sh`); the box records the image in
+  `/etc/hako-release`.
+- **Packages are upgraded** at build time (`dnf upgrade`); the VM then
+  reboots, and only the running kernel is kept.
+- **Container-ready kernel modules:** the cloud image has only
+  `kernel-core` and `kernel-modules-core`; `kernel-modules` and
+  `kernel-modules-extra` add the netfilter modules Docker loads.
+- **Networking:** no NetworkManager profiles in the box. NetworkManager
+  brings up every ethernet NIC with DHCP by itself, and a profile Vagrant
+  adds for a NIC takes over that NIC.
+- **cloud-init stays off without a seed** (`ds-identify.cfg`), and the GRUB
+  menu timeout is 0. The box Vagrantfile adds a virtio RNG.
+- **VirtualBox**: the Guest Additions are built from the ISO against
+  `kernel-devel` (Fedora's kernel has the guest modules only on x86, and the
+  ISO's match the installed VirtualBox).
+- **Containers**: `make test` runs Moby's `check-config.sh` and loads
+  Docker's kernel modules; Docker itself is not installed.
+
+Measured on Apple Silicon (arm64): libvirt (vagrant-qemu) boot 5.3 s,
+`vagrant up` 22 s, box 0.78 GB; VirtualBox boot 4.3 s,
+`vagrant up` 104 s (most of it adding the box), box 1.2 GB.
+
+```bash
+cd fedora && make                       # build, then test (or from the root: make fedora-all)
+make fedora-publish
+```
+
 ## Layout
 
 ```
@@ -500,9 +537,11 @@ Makefile               forwards <distro>-<target> to the distro directory
 ubuntu-26.04.json      Ubuntu box catalog (committed, served by GitHub Pages)
 archlinux.json         Arch Linux box catalog (created by the first publish)
 gentoo.json            Gentoo box catalog (created by the first publish)
+fedora-45.json         Fedora box catalog (created by the first publish)
 ubuntu/                Ubuntu 26.04 box
 archlinux/             Arch Linux box (same layout as ubuntu/)
 gentoo/                Gentoo box (same layout, libvirt only)
+fedora/                Fedora 45 box (same layout)
 scripts/               doctor-lib.sh and install-deps-lib.sh, shared by every
                        distro's scripts/doctor and scripts/install-deps
 third_party/moby/      Moby's check-config.sh, run by every test script

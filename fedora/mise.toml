@@ -1,0 +1,43 @@
+# Tools and tasks for working on the hako/fedora-45 boxes (libvirt and VirtualBox).
+#
+#   mise trust && mise install   # packer, jq and gh for this directory
+#   mise run deps                # those three, then the platform packages:
+#                                # QEMU, firmware, Vagrant and its plugin, ...
+#   mise run doctor              # check this machine, with the fixes
+#
+# Building, testing and publishing are the Makefile's; the tasks below only
+# call it, and pass extra arguments on: mise run build PROVIDERS=libvirt
+
+[tools]
+packer = "1.16"
+jq = "1.8"
+gh = "2"
+
+# Extra arguments go to the installer: mise run deps --dry-run
+[tasks.deps]
+description = "Install what building and testing need on this platform"
+run = ["mise install packer jq gh", "scripts/install-deps"]
+
+[tasks.doctor]
+description = "Check this machine can build, test and publish the box"
+run = "scripts/doctor"
+
+[tasks.build]
+description = "Build the boxes (make build)"
+run = "make build"
+
+[tasks.test]
+description = "Boot and check each box with Vagrant (make test)"
+run = "make test"
+
+[tasks.all]
+description = "Build, then test (make all)"
+run = "make all"
+
+[tasks.publish]
+description = "Upload the boxes and update the catalog (make publish)"
+run = "make publish"
+
+[tasks.clean]
+description = "Remove build outputs (make clean)"
+run = "make clean"
