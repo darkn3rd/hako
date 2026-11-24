@@ -15,7 +15,7 @@
 # arm64 and amd64, each built natively (never emulated) from Gentoo's weekly
 # cloud-init disk image for that architecture. libvirt only: the images'
 # kernels have no vboxguest/vboxsf modules and no build tree to compile the
-# Guest Additions against (see ../README.md).
+# Guest Additions against (see README.md, "VirtualBox (planned)").
 
 OS         := gentoo
 NAME       := $(OS)

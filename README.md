@@ -9,7 +9,7 @@ this repository's GitHub Releases with a Vagrant box catalog.
 | `hako/ubuntu-26.04` | arm64        | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` |
 | `hako/ubuntu-26.04` | amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` |
 | `hako/archlinux`    | amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` (new, not yet published) |
-| `hako/gentoo`       | arm64, amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt) (new, not yet published; amd64 not yet built) |
+| `hako/gentoo`       | arm64, amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt) (new, not yet published) |
 
 Both architectures share one box name; Vagrant picks the one matching the
 host. Each is built natively on a host of its own architecture (never
@@ -21,8 +21,8 @@ Catalogs: [`ubuntu-26.04.json`](ubuntu-26.04.json), `archlinux.json` and
 
 Each distribution builds from its own directory, [`ubuntu/`](ubuntu) and
 [`archlinux/`](archlinux) and [`gentoo/`](gentoo). The rest of this README
-describes the Ubuntu box; see [Arch Linux](#arch-linux) and [Gentoo](#gentoo)
-for how those differ.
+describes the Ubuntu box; see [Arch Linux](#arch-linux) for how that one
+differs, and [gentoo/README.md](gentoo/README.md) for the Gentoo box.
 
 ## Why
 
@@ -315,6 +315,59 @@ because Vagrant loads the first Vagrantfile it finds walking up from the
 current directory, and an unrelated one in a parent of the repository would
 break the run.
 
+### Testing example Vagrantfiles
+
+`make test` checks the box itself. `make fixtures-test` is a separate set of
+integration tests of how a user runs it: it writes an example Vagrantfile for
+each provider and boot mode, boots each one this machine can run, and checks
+that the guest came up in the mode the name claims (`/sys/firmware/efi` is
+there for UEFI and absent for BIOS), that sudo works and the system is
+healthy, and that it comes up again after `vagrant reload`. The Vagrantfiles
+are test fixtures: generated into `<distro>/fixtures/` and not committed.
+
+So far only the Gentoo box has fixtures (`gentoo/scripts/fixtures`); the
+other distros are to follow the same scheme. The fixtures for an amd64 box:
+
+| Fixture        | Provider        | Boot mode | Needs                                  |
+|----------------|-----------------|-----------|----------------------------------------|
+| `qemu-bios`    | vagrant-qemu    | BIOS      | QEMU, the `vagrant-qemu` plugin        |
+| `qemu-uefi`    | vagrant-qemu    | UEFI      | the above, plus edk2 firmware          |
+| `libvirt-bios` | vagrant-libvirt | BIOS      | Linux, libvirt, `vagrant-libvirt`      |
+| `libvirt-uefi` | vagrant-libvirt | UEFI      | the above, plus OVMF firmware          |
+
+```bash
+cd gentoo                   # the distro directory
+make fixtures-list          # which fixtures this machine can run, and why not
+make fixtures               # write fixtures/<provider>-<mode>/Vagrantfile, run nothing
+make fixtures-test          # boot, check, reload, check and destroy each
+make fixtures-test FIXTURES="qemu-uefi"      # only some
+```
+
+- A fixture this machine can't run is skipped with the reason (no plugin, no
+  Linux, no firmware), not failed. The run fails if any fixture fails, or if
+  nothing could run.
+- Each fixture has its own directory, because Vagrant keeps its state beside
+  the Vagrantfile. To bring one up yourself:
+  `cd fixtures/qemu-uefi && vagrant up --provider qemu`. Naming a fixture
+  (`scripts/fixtures gen libvirt-uefi`) generates it even if this machine
+  can't run it.
+- The fixtures use the box in `boxes/` (through the local catalog that
+  `make test` also builds), so build first.
+- UEFI firmware comes from the same place as the build: Homebrew's QEMU on a
+  Mac, the distro's OVMF on Linux; set `EFI_CODE=` and `EFI_VARS=` to
+  override. An arm64 box is UEFI only, so it has just `qemu-uefi`, where
+  vagrant-qemu attaches the firmware itself.
+- On Linux the libvirt fixtures need the `libvirt` group in your session
+  (log in again after joining it, or `sg libvirt -c 'make fixtures-test'`);
+  without it they are skipped.
+- There are no VirtualBox fixtures yet: they come with the first box that
+  has both fixtures and a VirtualBox box.
+
+Status (Gentoo): on an x86 Linux host all four pass (2026-11-24). On an
+Intel Mac `qemu-bios` and `qemu-uefi` passed before the GRUB text-terminal
+change and have not been rerun since. The arm64 `qemu-uefi` fixture has not
+been run.
+
 ## Publishing
 
 ```bash
@@ -437,77 +490,22 @@ cd archlinux && make
 
 ## Gentoo
 
-`gentoo/` builds `hako/gentoo` from Gentoo's official cloud-init disk image
-(`di-<arch>-cloudinit-<timestamp>.qcow2`, rebuilt weekly by release
-engineering: systemd profile, dist-kernel, XFS root, GRUB, cloud-init). The
-differences from the Ubuntu box:
+`gentoo/` builds `hako/gentoo` (arm64 and amd64, libvirt) from Gentoo's
+official weekly cloud-init disk image. **See [gentoo/README.md](gentoo/README.md)**
+for how to use it, how it differs from the Ubuntu box, and how to build it.
+In short:
 
-- **arm64 and amd64**, one box name, as for Ubuntu. Each is built natively;
-  the Makefile picks the architecture from `uname -m`.
-- **No OS version.** Gentoo is a rolling release: the box is `hako/gentoo`,
-  the date version is the snapshot, and release tags are `gentoo-v<version>`.
-  The image's file name carries its build timestamp, so `make build` looks up
-  the latest one (`scripts/cloud-image.sh`, from
-  `latest-di-<arch>-cloudinit.txt` and the image's `.sha256`). Pin one with
-  `CLOUD_IMAGE_URL=... CLOUD_IMAGE_CHECKSUM=sha256:...`. The box records the
-  image it came from in `/etc/hako-release`.
-- **Packages are not upgraded at build time.** The image is at most a week
-  old, and an `@world` update would compile from source, the kernel included,
-  turning a two-minute build into hours.
-- **Binary packages by default.** The image already lists Gentoo's binhost
-  (signatures verified); the box adds `FEATURES="getbinpkg"` to `make.conf`,
-  so `emerge` installs prebuilt packages where they match instead of
-  compiling.
-- **No ebuild repository in the box** (the image ships none either). Fetch
-  one before the first `emerge`:
-
-  ```bash
-  sudo emerge-webrsync
-  ```
-
-- **No linux-firmware.** A VM loads no hardware firmware, and the package is
-  about 640 MB; removing it takes the box from 1.1 GB to 0.8 GB. It is also
-  removed from `@world`, so updates don't bring it back.
-- **Networking** is one systemd-networkd file, as in the Arch box.
-- **cloud-init stays off without a seed.** Gentoo's cloud-init enables itself
-  when no datasource is found, then fails four units and writes a network
-  file on every plain `vagrant up`. `/etc/cloud/ds-identify.cfg` sets
-  `notfound=disabled`; a VM with a NoCloud seed still runs cloud-init.
-- **sshd** is enabled as a unit (the image only starts it from cloud-init),
-  and the GRUB menu timeout is 0.
-- **Boots with BIOS or UEFI (amd64).** Gentoo's image is UEFI-only, but
-  vagrant-libvirt and vagrant-qemu start x86_64 VMs with BIOS (SeaBIOS) by
-  default. The build adds a 1 MiB GRUB BIOS boot partition in the gap before
-  the ESP and installs GRUB for BIOS next to the image's UEFI GRUB; both read
-  the same `/boot/grub/grub.cfg`. The box boots with no provider settings,
-  and with UEFI when the provider is configured for it (see
-  [Booting the Gentoo box with UEFI](#booting-the-gentoo-box-with-uefi)).
-  The arm64 box is UEFI only, as every arm64 VM is.
-- **Named CPU model on an Intel Mac (amd64).** Under HVF, `-cpu host` passes
-  the CPU's AVX-512 feature bits to the guest without enabling the AVX-512
-  register state, so Gentoo's kernel panics at boot with an invalid opcode
-  (in `chacha_8block_xor_avx512vl`). The build uses `Skylake-Client` there
-  (`packer/variables.pkr.hcl`), and the box's Vagrantfile sets the same model
-  for vagrant-qemu on an Intel Mac (`vagrantfiles/box.rb`). Linux with KVM
-  keeps `host`.
-- **libvirt only.** Neither architecture's dist-kernel has the
-  `vboxguest`/`vboxsf` modules, and the image has no kernel build tree to
-  compile the Guest Additions against, so there is no VirtualBox box yet.
-- **Docker** is tested the same way; the test VM runs `emerge-webrsync` and
-  installs `app-containers/docker` from the binhost (nothing is compiled).
-
-Measured on Apple Silicon (arm64, vagrant-qemu): boot ~8 s, `vagrant up`
-~20 s, box 0.8 GB. On an x86 Linux host (amd64, vagrant-libvirt, BIOS):
-boot ~8 s, `vagrant up` ~36 s.
+- The amd64 box is **hybrid BIOS/UEFI**: vagrant-libvirt and vagrant-qemu
+  boot x86_64 guests with BIOS by default, and the box also boots with UEFI
+  when the provider is configured for it. arm64 boots with UEFI only.
+- It builds on every host platform (macOS and Linux, arm64 and amd64), and
+  needs no VirtualBox; a VirtualBox box is planned.
+- Packages are not upgraded at build time (that would compile from source),
+  but `emerge` uses Gentoo's binary package host by default.
 
 ```bash
 cd gentoo && make                       # build, then test (or from the root: make gentoo-all)
-make gentoo-publish
 ```
-
-On a Linux host the build uses KVM and the distro's firmware (OVMF for
-amd64, AAVMF/edk2-aarch64 for arm64; override with `EFI_CODE=... EFI_VARS=...`)
-and `make test` uses vagrant-libvirt, as for Arch Linux.
 
 ## Layout
 
@@ -518,7 +516,7 @@ archlinux.json         Arch Linux box catalog (created by the first publish)
 gentoo.json            Gentoo box catalog (created by the first publish)
 ubuntu/                Ubuntu 26.04 box
 archlinux/             Arch Linux box (same layout as ubuntu/)
-gentoo/                Gentoo box (same layout, libvirt only)
+gentoo/                Gentoo box (same layout, libvirt only; own README.md)
 scripts/               doctor-lib.sh and install-deps-lib.sh, shared by every
                        distro's scripts/doctor and scripts/install-deps
 third_party/moby/      Moby's check-config.sh, run by every test script
@@ -570,128 +568,6 @@ Releases, with its 2 GiB-per-asset limit, works as the download host.
    release assets, so `config.vm.box = "hako/ubuntu-26.04"` works without
    `box_url`.
 5. **Later providers:** `parallels`, `vmware_desktop`, `utm`.
-
-## Booting the Gentoo box with UEFI
-
-The amd64 `hako/gentoo` box is hybrid: its disk has both an EFI system
-partition (with the removable-media loader `EFI/BOOT/BOOTX64.EFI`, so it boots
-from empty firmware variables) and a GRUB BIOS boot partition. By default
-vagrant-libvirt and vagrant-qemu boot it with BIOS, which needs no settings.
-To boot it with UEFI instead:
-
-**vagrant-libvirt** (Linux):
-
-```ruby
-Vagrant.configure("2") do |config|
-  config.vm.box = "hako/gentoo"
-
-  config.vm.provider :libvirt do |libvirt|
-    libvirt.machine_type = "q35"
-    libvirt.loader = "/usr/share/OVMF/OVMF_CODE_4M.fd"
-    libvirt.nvram  = "/var/lib/libvirt/qemu/nvram/hako-gentoo_VARS.fd"
-  end
-end
-```
-
-- `loader` is the read-only firmware code (Debian/Ubuntu path; Arch:
-  `/usr/share/edk2/x64/OVMF_CODE.4m.fd`, Fedora:
-  `/usr/share/edk2/ovmf/OVMF_CODE.fd`).
-- `nvram` is this VM's own writable copy of the UEFI variables, not the
-  template in `/usr/share/OVMF`: pointing it at the template either fails
-  (QEMU can't write it) or makes every VM share one variable store. Use one
-  path per VM. When the file doesn't exist, libvirt creates it from the
-  template that matches `loader` (from the firmware descriptors in
-  `/usr/share/qemu/firmware`). vagrant-libvirt keeps the file on
-  `vagrant destroy`.
-- The CODE and VARS files must come from the same set (both `_4M`, or both
-  without).
-
-**vagrant-qemu** (Intel Mac or Linux): the plugin attaches UEFI firmware only
-for arm64 guests, and has no firmware setting for x86_64, so it boots them
-with QEMU's SeaBIOS. Its `extra_qemu_args` (appended after the plugin's own
-arguments) can attach the firmware instead; give the VM its own copy of the
-variables file:
-
-```ruby
-require "fileutils"
-
-# Intel Mac (Homebrew QEMU):
-code = "/usr/local/share/qemu/edk2-x86_64-code.fd"
-vars = "/usr/local/share/qemu/edk2-i386-vars.fd"
-# Linux (Debian/Ubuntu):
-# code = "/usr/share/OVMF/OVMF_CODE_4M.fd"
-# vars = "/usr/share/OVMF/OVMF_VARS_4M.fd"
-
-vm_vars = File.join(__dir__, ".vagrant", "uefi-vars.fd")
-unless File.exist?(vm_vars)
-  FileUtils.mkdir_p(File.dirname(vm_vars))
-  FileUtils.cp(vars, vm_vars)
-end
-
-Vagrant.configure("2") do |config|
-  config.vm.box = "hako/gentoo"
-
-  config.vm.provider "qemu" do |qe|
-    qe.extra_qemu_args = [
-      "-drive", "if=pflash,format=raw,unit=0,readonly=on,file=#{code}",
-      "-drive", "if=pflash,format=raw,unit=1,file=#{vm_vars}",
-    ]
-  end
-end
-```
-
-The default machine type for x86_64 is already `q35`, which UEFI needs; if
-you set `qe.machine` yourself, keep the accelerator (`"q35,accel=hvf"` on a
-Mac, `"q35,accel=kvm"` on Linux).
-
-`make test` boots the box with BIOS (vagrant-libvirt's default). The
-Vagrantfiles above are generated, and booted in each mode, by
-`make fixtures-test` (next section).
-
-## Testing example Vagrantfiles (Gentoo)
-
-`make test` checks the box itself. `make fixtures-test` is a separate set of
-integration tests of how a user runs it: it writes an example Vagrantfile for
-each provider and boot mode, boots each one this machine can run, and checks
-that the guest came up in the mode the name claims (`/sys/firmware/efi` is
-there for UEFI and absent for BIOS), that sudo works and the system is
-healthy, and that it comes up again after `vagrant reload`. The Vagrantfiles
-are test fixtures: generated into `gentoo/fixtures/` and not committed.
-
-| Fixture        | Provider        | Boot mode | Needs                                  |
-|----------------|-----------------|-----------|----------------------------------------|
-| `qemu-bios`    | vagrant-qemu    | BIOS      | QEMU, the `vagrant-qemu` plugin        |
-| `qemu-uefi`    | vagrant-qemu    | UEFI      | the above, plus edk2 firmware          |
-| `libvirt-bios` | vagrant-libvirt | BIOS      | Linux, libvirt, `vagrant-libvirt`      |
-| `libvirt-uefi` | vagrant-libvirt | UEFI      | the above, plus OVMF firmware          |
-
-```bash
-cd gentoo
-make fixtures-list          # which fixtures this machine can run, and why not
-make fixtures               # write fixtures/<provider>-<mode>/Vagrantfile, run nothing
-make fixtures-test          # boot, check, reload, check and destroy each
-make fixtures-test FIXTURES="qemu-uefi"      # only some
-```
-
-- A fixture this machine can't run is skipped with the reason (no plugin, no
-  Linux, no firmware), not failed. The run fails if any fixture fails, or if
-  nothing could run.
-- Each fixture has its own directory, because Vagrant keeps its state beside
-  the Vagrantfile. To bring one up yourself:
-  `cd fixtures/qemu-uefi && vagrant up --provider qemu`. Naming a fixture
-  (`scripts/fixtures gen libvirt-uefi`) generates it even if this machine
-  can't run it.
-- The fixtures use the box in `boxes/` (through the local catalog that
-  `make test` also builds), so build first.
-- UEFI firmware comes from the same place as the build: Homebrew's QEMU on a
-  Mac, the distro's OVMF on Linux; set `EFI_CODE=` and `EFI_VARS=` to
-  override. The arm64 box is UEFI only, so it has just `qemu-uefi`, where
-  vagrant-qemu attaches the firmware itself.
-- There are no VirtualBox fixtures: the Gentoo box is libvirt only.
-
-Status: on an Intel Mac, `qemu-bios` and `qemu-uefi` pass. The two libvirt
-fixtures need a Linux host with vagrant-libvirt and have not been run yet; the
-arm64 fixture has not been run.
 
 ## License
 
