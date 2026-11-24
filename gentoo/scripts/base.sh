@@ -74,9 +74,16 @@ fi
 # installs /boot/amd-uc.img (AMD microcode), grub-mkconfig adds it to the
 # initrd line, and when the file is missing GRUB drops the whole initrd, so
 # the kernel boots without its initramfs and panics (no root filesystem).
-sed -i '/^#\?GRUB_TIMEOUT=/d; /^#\?GRUB_TIMEOUT_STYLE=/d' /etc/default/grub
-printf 'GRUB_TIMEOUT=0\nGRUB_TIMEOUT_STYLE=hidden\n' >> /etc/default/grub
+#
+# Text terminals only (serial and the firmware console), no gfxterm: the
+# image's graphical GRUB terminal sends a BIOS boot with no video device
+# (vagrant-qemu runs QEMU with -vga none) into a reboot loop right after
+# "Loading Linux". A headless VM has no use for the graphical menu.
+sed -i '/^#\?GRUB_TIMEOUT=/d; /^#\?GRUB_TIMEOUT_STYLE=/d; /^#\?GRUB_TERMINAL\(_INPUT\|_OUTPUT\)\?=/d' \
+  /etc/default/grub
+printf 'GRUB_TIMEOUT=0\nGRUB_TIMEOUT_STYLE=hidden\nGRUB_TERMINAL="serial console"\n' >> /etc/default/grub
 grub-mkconfig -o /boot/grub/grub.cfg
+! grep -E '^terminal_(input|output) .*gfxterm' /boot/grub/grub.cfg
 # Every kernel and initrd grub.cfg names must exist on /boot.
 for f in $(awk '$1 == "linux" { print $2 } $1 == "initrd" { for (i = 2; i <= NF; i++) print $i }' \
              /boot/grub/grub.cfg | sort -u); do
