@@ -10,19 +10,20 @@ this repository's GitHub Releases with a Vagrant box catalog.
 | `hako/ubuntu-26.04` | amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` |
 | `hako/archlinux`    | amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` (new, not yet published) |
 | `hako/gentoo`       | arm64, amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt) (new, not yet published; amd64 not yet built) |
+| `hako/alpine-3.24`  | arm64, amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` (new, not yet published; amd64 not yet built) |
 
 Both architectures share one box name; Vagrant picks the one matching the
 host. Each is built natively on a host of its own architecture (never
 emulated), so arm64 boxes come from an Apple Silicon Mac and amd64 boxes from
 an Intel one.
 
-Catalogs: [`ubuntu-26.04.json`](ubuntu-26.04.json), `archlinux.json` and
-`gentoo.json` (each written by that distro's first `make publish`)
+Catalogs: [`ubuntu-26.04.json`](ubuntu-26.04.json), `archlinux.json`,
+`gentoo.json` and `alpine-3.24.json` (each written by that distro's first `make publish`)
 
-Each distribution builds from its own directory, [`ubuntu/`](ubuntu) and
-[`archlinux/`](archlinux) and [`gentoo/`](gentoo). The rest of this README
-describes the Ubuntu box; see [Arch Linux](#arch-linux) and [Gentoo](#gentoo)
-for how those differ.
+Each distribution builds from its own directory: [`ubuntu/`](ubuntu),
+[`archlinux/`](archlinux), [`gentoo/`](gentoo) and [`alpine/`](alpine). The rest
+of this README describes the Ubuntu box; see [Arch Linux](#arch-linux),
+[Gentoo](#gentoo) and [Alpine Linux](#alpine-linux) for how those differ.
 
 ## Why
 
@@ -493,6 +494,45 @@ On a Linux host the build uses KVM and the distro's firmware (OVMF for
 amd64, AAVMF/edk2-aarch64 for arm64; override with `EFI_CODE=... EFI_VARS=...`)
 and `make test` uses vagrant-libvirt, as for Arch Linux.
 
+## Alpine Linux
+
+`alpine/` builds `hako/alpine-3.24` from Alpine's official cloud-init image
+(`alpine-3.24.<n>-<arch>-cloudinit-r<n>.qcow2`: OpenRC, the `linux-virt`
+kernel, Limine boot loader). The differences from the Ubuntu box:
+
+- **arm64 and amd64**, one box name, each built natively, with libvirt and
+  VirtualBox boxes. `make build` looks up the newest point release and image
+  revision of the branch and its SHA-512 (`scripts/cloud-image.sh`); the box
+  records the image it came from in `/etc/hako-release`.
+- **Tiny:** the libvirt box is about 0.13 GB, the VirtualBox box 0.09 GB.
+- **sudo and bash** are added (the image has only `doas`): Vagrant runs
+  `sudo -E -H` and logs in with bash. The build seed's `doas` rule is removed.
+- **Packages are upgraded** at build time (`apk upgrade --available`).
+- **Networking** is `/etc/network/interfaces` with DHCP on `eth0` (Alpine
+  names NICs `eth0`, `eth1`, ... in probe order); the file cloud-init wrote
+  for the build is replaced.
+- **cloud-init stays off without a seed** (`ds-identify.cfg`), as on the
+  other boxes; SSH host keys are made by the sshd init script on each VM's
+  first boot. The Limine menu timeout is 0.
+- **VirtualBox shared folders:** mainline Linux builds the VirtualBox guest
+  modules (`vboxguest`, `vboxsf`) only for x86, and the Guest Additions
+  installer needs glibc. On amd64 the kernel's modules mount the shared
+  folder and Alpine's `virtualbox-guest-additions` package adds VBoxService;
+  on arm64 the box's Vagrantfile uses an rsync shared folder instead.
+- **Boot time** is measured from kernel start to sshd's start (OpenRC has
+  no `systemd-analyze`).
+- **Containers**: `make test` runs Moby's `check-config.sh` and loads
+  Docker's kernel modules; Docker itself is not installed.
+
+Measured on Apple Silicon (arm64): libvirt (vagrant-qemu) kernel to sshd
+8.5 s, `vagrant up` 18 s, box 0.13 GB; VirtualBox kernel to sshd
+6.8 s, `vagrant up` 22 s, box 0.09 GB.
+
+```bash
+cd alpine && make                       # build, then test (or from the root: make alpine-all)
+make alpine-publish
+```
+
 ## Layout
 
 ```
@@ -500,9 +540,11 @@ Makefile               forwards <distro>-<target> to the distro directory
 ubuntu-26.04.json      Ubuntu box catalog (committed, served by GitHub Pages)
 archlinux.json         Arch Linux box catalog (created by the first publish)
 gentoo.json            Gentoo box catalog (created by the first publish)
+alpine-3.24.json       Alpine Linux box catalog (created by the first publish)
 ubuntu/                Ubuntu 26.04 box
 archlinux/             Arch Linux box (same layout as ubuntu/)
 gentoo/                Gentoo box (same layout, libvirt only)
+alpine/                Alpine Linux 3.24 box (same layout)
 scripts/               doctor-lib.sh and install-deps-lib.sh, shared by every
                        distro's scripts/doctor and scripts/install-deps
 third_party/moby/      Moby's check-config.sh, run by every test script
