@@ -1,0 +1,13 @@
+# Installed by hako. One DHCP config for every ethernet NIC, matched by
+# name pattern (no MAC address), so it works whatever name the hypervisor's
+# NIC gets: eth0, enp0s1 (QEMU virtio-pci), enp0s3/enp0s8 (VirtualBox), ...
+#
+# systemd-networkd applies the first .network file (in lexical order) that
+# matches a link, so "99-" sorts after any per-interface config Vagrant or a
+# cloud-init seed adds later (for example a private_network on the second
+# NIC), and those win for their NIC.
+[Match]
+Name=e*
+
+[Network]
+DHCP=ipv4

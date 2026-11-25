@@ -9,18 +9,20 @@ this repository's GitHub Releases with a Vagrant box catalog.
 | `hako/ubuntu-26.04` | arm64        | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` |
 | `hako/ubuntu-26.04` | amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` |
 | `hako/archlinux`    | amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt), `virtualbox` (new, not yet published) |
+| `hako/gentoo`       | arm64, amd64 (Intel x86) | `libvirt` (vagrant-qemu, vagrant-libvirt) (new, not yet published) |
 
 Both architectures share one box name; Vagrant picks the one matching the
 host. Each is built natively on a host of its own architecture (never
 emulated), so arm64 boxes come from an Apple Silicon Mac and amd64 boxes from
 an Intel one.
 
-Catalogs: [`ubuntu-26.04.json`](ubuntu-26.04.json), `archlinux.json` (written by
-the first Arch Linux `make publish`)
+Catalogs: [`ubuntu-26.04.json`](ubuntu-26.04.json), `archlinux.json` and
+`gentoo.json` (each written by that distro's first `make publish`)
 
 Each distribution builds from its own directory, [`ubuntu/`](ubuntu) and
-[`archlinux/`](archlinux). The rest of this README describes the Ubuntu box;
-see [Arch Linux](#arch-linux) for how that one differs.
+[`archlinux/`](archlinux) and [`gentoo/`](gentoo). The rest of this README
+describes the Ubuntu box; see [Arch Linux](#arch-linux) for how that one
+differs, and [gentoo/README.md](gentoo/README.md) for the Gentoo box.
 
 ## Why
 
@@ -131,7 +133,77 @@ config.vm.box_url = "file:///path/to/hako/boxes/ubuntu-26.04.local.json"
 
 Requirements (macOS, Apple Silicon or Intel): Packer 1.9+ (`brew install
 hashicorp/tap/packer`), QEMU (Homebrew), VirtualBox 7.1+ for the VirtualBox
-box, Vagrant 2.4+, `jq`, and `gh` for publishing.
+box, Vagrant 2.4+ with the `vagrant-qemu` plugin, `jq`, and `gh` for publishing.
+`mise run deps` installs them (see below).
+
+### Setting up with mise
+
+Each distro directory has its own `mise.toml` (there is none at the repo
+root). It pins the command-line tools (`packer`, `jq`, `gh`) and has tasks
+for setting up and checking the machine. Building, testing and publishing
+stay in the Makefile; the matching mise tasks just call it:
+
+```bash
+cd ubuntu
+mise trust
+mise run deps                   # packer/jq/gh, then QEMU, Vagrant, plugins, ... for this platform
+mise run doctor                 # check everything, with the commands that fix what's missing
+mise run build                  # = make build; extra arguments pass on: mise run build PROVIDERS=libvirt
+```
+
+| Task | What it runs |
+|---|---|
+| `mise run deps` | `mise install packer jq gh`, then `scripts/install-deps` (`--dry-run` prints the commands instead) |
+| `mise run doctor` | `scripts/doctor` |
+| `mise run build`, `test`, `all`, `publish`, `clean` | the `make` target of the same name |
+
+`scripts/install-deps` installs only what's missing, with the platform's
+package manager:
+
+- **macOS:** Homebrew installs QEMU (with its UEFI firmware), Vagrant, and
+  VirtualBox where the distro builds that box.
+- **Debian/Ubuntu, Arch, Fedora:** the package manager (with sudo) installs
+  QEMU for the host's architecture, OVMF/AAVMF firmware, `xorriso`, libvirt
+  and the headers `vagrant-libvirt` builds against. It then enables
+  `libvirtd` and adds you to the `kvm` and `libvirt` groups (log in again
+  afterwards).
+- **Vagrant on Linux:** on Debian/Ubuntu and Fedora it comes from
+  HashiCorp's repository, since distro packages are older than 2.4. On Arch
+  it comes from the AUR through `paru` or `yay`, if one is installed.
+- **Then, everywhere:** the Vagrant plugin `make test` uses (`vagrant-qemu`
+  on macOS, `vagrant-libvirt` on Linux), and Vagrant's insecure key, which
+  the build logs in with.
+
+VirtualBox isn't installed on Linux (distro packages are often older than
+7.1); the script says where to get it.
+
+`scripts/doctor` is read-only. It checks:
+
+- that the distro builds on this host (Ubuntu: macOS only; Arch Linux: amd64
+  only; Gentoo: macOS or Linux, arm64 or amd64), and that the shell isn't
+  running under Rosetta on Apple Silicon;
+- hardware virtualization (HVF on macOS, a usable `/dev/kvm` on Linux);
+- mise (optional), Packer 1.9+ and the plugins the templates need, QEMU for
+  the host's architecture, `qemu-img`, the UEFI firmware, an ISO tool for
+  the build's cloud-init seed and `jq`;
+- Vagrant 2.4+, its insecure key, and the plugin `make test` uses:
+  `vagrant-qemu` on macOS, or `vagrant-libvirt` plus access to libvirt and
+  its `default` storage pool on Linux;
+- VirtualBox 7.1+ where the distro builds a VirtualBox box
+  (`PROVIDERS=libvirt mise run doctor` skips it);
+- `gh` signed in (a warning only: just `make publish` needs it), and free
+  disk space.
+
+When something fails, the fixes start with `mise run deps`, followed by the
+individual commands for this platform (Homebrew, apt, pacman or dnf). Native
+Windows is detected and pointed at WSL2 with nested virtualization, which
+counts as a Linux host. Exit status is 1 if any check fails; warnings don't
+fail it.
+
+Both scripts work without mise too (`scripts/doctor`,
+`scripts/install-deps`). What a distro needs is in its
+`scripts/requirements.sh`; the shared code is in `scripts/doctor-lib.sh` and
+`scripts/install-deps-lib.sh` at the repo root.
 
 Commands and paths in Building, Testing and Publishing are relative to
 `ubuntu/`. From the repo root, prefix the target with the distro instead:
@@ -242,6 +314,59 @@ old build in the cache. All Vagrant commands run from a scratch directory,
 because Vagrant loads the first Vagrantfile it finds walking up from the
 current directory, and an unrelated one in a parent of the repository would
 break the run.
+
+### Testing example Vagrantfiles
+
+`make test` checks the box itself. `make fixtures-test` is a separate set of
+integration tests of how a user runs it: it writes an example Vagrantfile for
+each provider and boot mode, boots each one this machine can run, and checks
+that the guest came up in the mode the name claims (`/sys/firmware/efi` is
+there for UEFI and absent for BIOS), that sudo works and the system is
+healthy, and that it comes up again after `vagrant reload`. The Vagrantfiles
+are test fixtures: generated into `<distro>/fixtures/` and not committed.
+
+So far only the Gentoo box has fixtures (`gentoo/scripts/fixtures`); the
+other distros are to follow the same scheme. The fixtures for an amd64 box:
+
+| Fixture        | Provider        | Boot mode | Needs                                  |
+|----------------|-----------------|-----------|----------------------------------------|
+| `qemu-bios`    | vagrant-qemu    | BIOS      | QEMU, the `vagrant-qemu` plugin        |
+| `qemu-uefi`    | vagrant-qemu    | UEFI      | the above, plus edk2 firmware          |
+| `libvirt-bios` | vagrant-libvirt | BIOS      | Linux, libvirt, `vagrant-libvirt`      |
+| `libvirt-uefi` | vagrant-libvirt | UEFI      | the above, plus OVMF firmware          |
+
+```bash
+cd gentoo                   # the distro directory
+make fixtures-list          # which fixtures this machine can run, and why not
+make fixtures               # write fixtures/<provider>-<mode>/Vagrantfile, run nothing
+make fixtures-test          # boot, check, reload, check and destroy each
+make fixtures-test FIXTURES="qemu-uefi"      # only some
+```
+
+- A fixture this machine can't run is skipped with the reason (no plugin, no
+  Linux, no firmware), not failed. The run fails if any fixture fails, or if
+  nothing could run.
+- Each fixture has its own directory, because Vagrant keeps its state beside
+  the Vagrantfile. To bring one up yourself:
+  `cd fixtures/qemu-uefi && vagrant up --provider qemu`. Naming a fixture
+  (`scripts/fixtures gen libvirt-uefi`) generates it even if this machine
+  can't run it.
+- The fixtures use the box in `boxes/` (through the local catalog that
+  `make test` also builds), so build first.
+- UEFI firmware comes from the same place as the build: Homebrew's QEMU on a
+  Mac, the distro's OVMF on Linux; set `EFI_CODE=` and `EFI_VARS=` to
+  override. An arm64 box is UEFI only, so it has just `qemu-uefi`, where
+  vagrant-qemu attaches the firmware itself.
+- On Linux the libvirt fixtures need the `libvirt` group in your session
+  (log in again after joining it, or `sg libvirt -c 'make fixtures-test'`);
+  without it they are skipped.
+- There are no VirtualBox fixtures yet: they come with the first box that
+  has both fixtures and a VirtualBox box.
+
+Status (Gentoo): on an x86 Linux host all four pass (2026-11-24). On an
+Intel Mac `qemu-bios` and `qemu-uefi` passed before the GRUB text-terminal
+change and have not been rerun since. The arm64 `qemu-uefi` fixture has not
+been run.
 
 ## Publishing
 
@@ -358,7 +483,29 @@ sudo apt-get install xorriso ovmf        # Debian/Ubuntu
 cd archlinux && make
 ```
 
-`make build` runs a preflight check first and lists anything missing.
+`make build` runs a quick preflight check first and lists anything missing.
+`mise run deps` installs these on Debian/Ubuntu, Arch and Fedora, and
+`mise run doctor` checks more (Vagrant, libvirt access, plugins); see
+[Setting up with mise](#setting-up-with-mise).
+
+## Gentoo
+
+`gentoo/` builds `hako/gentoo` (arm64 and amd64, libvirt) from Gentoo's
+official weekly cloud-init disk image. **See [gentoo/README.md](gentoo/README.md)**
+for how to use it, how it differs from the Ubuntu box, and how to build it.
+In short:
+
+- The amd64 box is **hybrid BIOS/UEFI**: vagrant-libvirt and vagrant-qemu
+  boot x86_64 guests with BIOS by default, and the box also boots with UEFI
+  when the provider is configured for it. arm64 boots with UEFI only.
+- It builds on every host platform (macOS and Linux, arm64 and amd64), and
+  needs no VirtualBox; a VirtualBox box is planned.
+- Packages are not upgraded at build time (that would compile from source),
+  but `emerge` uses Gentoo's binary package host by default.
+
+```bash
+cd gentoo && make                       # build, then test (or from the root: make gentoo-all)
+```
 
 ## Layout
 
@@ -366,17 +513,26 @@ cd archlinux && make
 Makefile               forwards <distro>-<target> to the distro directory
 ubuntu-26.04.json      Ubuntu box catalog (committed, served by GitHub Pages)
 archlinux.json         Arch Linux box catalog (created by the first publish)
+gentoo.json            Gentoo box catalog (created by the first publish)
 ubuntu/                Ubuntu 26.04 box
 archlinux/             Arch Linux box (same layout as ubuntu/)
-third_party/moby/      Moby's check-config.sh, run by both test scripts
+gentoo/                Gentoo box (same layout, libvirt only; own README.md)
+scripts/               doctor-lib.sh and install-deps-lib.sh, shared by every
+                       distro's scripts/doctor and scripts/install-deps
+third_party/moby/      Moby's check-config.sh, run by every test script
 
 Inside each distro directory:
   Makefile             build / test / publish
+  mise.toml            tools (packer, jq, gh) and tasks: deps, doctor, and
+                       build/test/publish calling make
   packer/              Packer templates (qemu + virtualbox-ovf sources)
   cloud-init/          NoCloud seed used only during the libvirt build
   files/               network, cloud-init and systemd files put in the box
-  scripts/             provisioning, catalog, OVF, release notes and test helpers
+  scripts/             provisioning, catalog, OVF, release notes, test helpers;
+                       doctor, install-deps and requirements.sh (mise tasks)
   vagrantfiles/box.rb  Vagrantfile embedded in the boxes
+  fixtures/            Gentoo only: generated example Vagrantfiles per provider
+                       and boot mode (scripts/fixtures; not committed)
 ```
 
 ## Roadmap
